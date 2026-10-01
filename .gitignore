@@ -11,3 +11,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+inspect_mifitness_out/
+*.zip
