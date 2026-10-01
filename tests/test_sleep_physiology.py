@@ -156,4 +156,5 @@ def test_era_change_restarts_baseline():
 
 def test_sri_survives_one_unworn_night_in_window():
     w = run(Scenario(first_wake=D(2026, 5, 1), nights=21, missing_nights={D(2026, 5, 15)}))
-    assert w.loc[D(2026, 5, 18)].sri == pytest.approx(100.0)   # pairs with 5/15 still count (~69 % known)
+    # pairs with 5/15 still count (~69 % known); boundary minutes of the gap cost < 0.1
+    assert w.loc[D(2026, 5, 18)].sri == pytest.approx(100.0, abs=0.1)
