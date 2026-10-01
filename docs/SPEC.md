@@ -289,7 +289,15 @@ For every nightly metric x (RHR, ln RMSSD, TST, mean sleeping HR):
   - Because this is a sleeping RHR, %HRR runs slightly higher than with a seated RHR. That's
     consistent over time, which is what matters for load trends.
 
-### 6.2 Training load: Banister TRIMP (primary)
+### 6.2 Training load
+
+**Primary (decided after the Mi Fitness findings, §9.2): Edwards TRIMP per workout**
+= Σ zone-minutes × weight (zones 1–5 → weights 1–5), from the band's own zone durations.
+Daily load = Σ over that day's workouts. A day with no workout has load 0. That is a real zero,
+not an imputation, *provided the band was worn that day* (wear coverage per §3). Otherwise the day
+is `insufficient_data`.
+
+**Secondary: Banister TRIMP** from background HR, on days with ≤ 2-min cadence:
 
 - HRr(t) = clip((HR − HRrest) / (HRmax − HRrest), 0, 1).
 - TRIMP = Σ Δtᵢ[min] · HRrᵢ · a · e^{b·HRrᵢ}
@@ -499,11 +507,22 @@ Source: `inspect_mifitness.py` report on the full export. These resolve most of 
 - Travel shows up as 0, 12, 22 (UTC+5:30), 32 and 36.
 - In era A, summer nights mostly carry 4, which suggests the old app stored the *standard* offset
   without DST.
-- Decision: the local date comes from a configured **home-timezone history**
-  (`[[timezones]] from = …, tz = …`). A record whose offset differs from home by more than DST can
-  explain is flagged `travel`. Travel days are excluded from regularity metrics and use the
-  record's own offset for clock times.
-- Era A's DST-naive offset is never trusted for DST.
+- Decision (**no user input needed**): local time comes from the **offset stored on the records
+  themselves**, not from a configured home zone.
+  - Each sleep/workout record gives the offset in force that day. HR and step samples take the
+    offset of the nearest sleep/workout record (sleep records exist almost daily).
+  - Era A stored the standard offset without DST. For offsets 0 and +1 (every place in Europe with
+    those offsets follows the same EU rule: last Sunday of March → last Sunday of October, 01:00
+    UTC), the adapter applies that rule to recover the real wall-clock offset.
+  - Other offsets (+3, +5:30, +8, +9) are used as is; those places don't observe DST.
+  - Live data with no record yet for the day falls back to `config.timezone` (Europe/Madrid, which
+    also covers Barcelona).
+- Why it matters: it decides which date a night or a training day belongs to, and the clock times
+  behind bedtime regularity. Without it, a trip to UTC+8 would look like a 7-hour bedtime shift,
+  and old summer nights would look an hour early.
+- A record whose offset differs from the previous day's is flagged `tz_change`. The first two
+  nights after it are excluded from the regularity metrics (jet lag is real, but it isn't
+  irregular habit).
 
 **Bad timestamps.**
 - A handful of rows are dated 2000-12-31 (device clock not set). The adapter drops anything before
@@ -527,8 +546,17 @@ Source: `inspect_mifitness.py` report on the full export. These resolve most of 
      - If those zones are Xiaomi's %HRmax bands (50–60 / 60–70 / 70–80 / 80–90 / 90–100 % of max
        HR), that is exactly **Edwards' TRIMP** = Σ zone-minutes × weights 1..5.
      - It exists for every recorded workout since 2017 and doesn't depend on background cadence.
-     - It is computed from the device's zone classification, which we can't audit. To verify: the
-       zone thresholds shown in Mi Fitness → heart rate zones.
+     - It is computed from the device's zone classification, which we can't audit. The thresholds
+       couldn't be found in the app, so the assumption is **checked from the data**:
+       - For workouts whose zone time covers ≥ 90 % of the duration, the time-weighted zone
+         midpoint (55/65/75/85/95 %) × HRmax should reproduce `avg_hrm`.
+       - Fitting HRmax_implied = avg_hrm / weighted-midpoint across sessions estimates the HRmax
+         the band uses. A tight spread (e.g. CV < 5 %) supports %HRmax zones.
+       - A spread that depends on resting HR would point to HR-reserve zones; then the Edwards
+         weights get relabelled "device-zone TRIMP".
+     - **Decision (approved): Edwards TRIMP from workout zones is the primary training load**
+       (§6.2 updated). Banister from 1-min background HR is secondary: validation, and it catches
+       sessions not started on the band.
 
 **HRmax.**
 - Workout `max_hrm` reaches 188–194 (football, beach volleyball, free training). That's consistent
