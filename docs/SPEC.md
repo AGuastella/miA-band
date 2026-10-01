@@ -1,6 +1,6 @@
 # miA-band: Step 1 spec (source-agnostic)
 
-Status: **draft, awaiting approval**. Everything below is defined against a canonical internal
+Status: **draft, awaiting approval** (updated with the Mi Fitness export findings, §9.2). Everything below is defined against a canonical internal
 schema. Source adapters (Mi Fitness CSV export, then Gadgetbridge) only have to produce that
 schema. Items that depend on real data are marked **[TBD-data]** and collected in §9.
 
@@ -431,6 +431,111 @@ The output records which rule fired and the field values it saw.
   effort (e.g. hill repeats with the band started as a workout) would replace the age formula with
   a measured value. Optical HR during arm-heavy play may also under-read; we can't correct that,
   only state it.
+
+### 9.2 Findings from the Mi Fitness export (2026-10-01, ~7.3 M rows)
+
+Source: `inspect_mifitness.py` report on the full export. These resolve most of the §9 table.
+
+**Files that matter.**
+- `hlth_center_fitness_data.csv` (806 MB): columns `Uid, Sid, Key, Time, Value(JSON), UpdateTime`.
+  This is the primary source.
+- `hlth_center_sport_record.csv`: one row per workout (818 since 2017), summaries only.
+- `user_fitness_data_records.csv` is the legacy (Mi Fit / Zepp era) store. It largely duplicates
+  the main file, with one exception: `watch_hrm_record.raw_hrm`, a base64 per-minute HR blob per
+  day. That blob may fill the HR gaps of 2018–2019 (only 16 k HR rows in 2019 in the main file).
+  It's a **later, optional** enhancement.
+- Everything else is empty or irrelevant (settings, profile, GPS).
+
+**Device eras** (`Sid`; there are no duplicate timestamps within a key):
+
+| era | Sid | dates | background HR cadence | sleep record |
+|---|---|---|---|---|
+| A | `b4e8c92d` | 2017-04 → 2025-06-12 | 60 s (sparse in 2018–19) | `watch_night_sleep` + `watch_daytime_sleep` |
+| B | `cef93f20` | 2025-06-12 → 08-20 | **600 s** | `watch_night_sleep` |
+| C | `431c4ef0` | 2025-08-21 → 2026-09-08 | 60 s, ~1440/day | `sleep` (night + naps) |
+| D | `ac7b7f65` (Band 10) | 2026-09-08 → now | **600 s** | `sleep` |
+
+- Era A is the Mi Fit/Zepp import. Several bands (Mi Band 1→…) are merged under one source id, so
+  band changes *inside* era A can't be seen from the id.
+- Consequence for baselines: the 28-day baseline **restarts at every era boundary** (B, C, D).
+  Inside era A it doesn't restart, and that is a documented limitation.
+
+**Keys → canonical tables.**
+
+| key | → | notes |
+|---|---|---|
+| `heart_rate` `{time,bpm,type=0}` | `hr_samples` (context `background`) | bpm 37–217; range filter in features |
+| `single_heart_rate` | `hr_samples` (context `spot`) | manual measurements; not used for RHR/strain |
+| `watch_night_sleep`, `sleep` | `sleep_sessions` + `sleep_segments` | same JSON shape: `bedtime, wake_up_time, duration, sleep_{deep,light,rem,awake}_duration, items[]{start_time,end_time,state}` |
+| `watch_daytime_sleep` | `sleep_sessions` (`is_nap`) | `bedtime=0`; the session envelope comes from `items[]` |
+| `sport_record` rows | `workouts` | plus HR-zone seconds, avg/max/min HR, device train_load/effect |
+| `resting_heart_rate` `{date_time,bpm}`, sleep `avg_hr/min_hr/max_hr`, `training_load`, `vitality`, `pai`, `vo2_max`, `stress` | `device_daily_summary` | **reference only**, never an input to our scores |
+| `steps` (per minute) | `step_samples` | used for wear inference |
+| `body_momentum`, `light_sensitivity_value` | — | every value is 0: dropped |
+| `intensity` | — | only a timestamp, no value: dropped |
+
+**Sleep stage codes.**
+- **2 = deep** and **3 = light** are verified: per night, Σ item minutes by state equals
+  `sleep_deep_duration` / `sleep_light_duration` exactly.
+- **4 = REM** and **5 = awake** are inferred: they appear only on nights with non-zero
+  `sleep_rem_duration` / `sleep_awake_duration`, and their frequencies match.
+- **0** appears only in era-A nights from 2018: an unclassified first hour, mapped to `asleep`.
+- The adapter **verifies the mapping on every night**. It recomputes stage minutes from the items,
+  compares them with the duration fields, reports the agreement rate, and fails if it falls below
+  95 %.
+- REM is 0 on whole stretches of era A (older bands had no REM detection). Stage breakdowns are
+  therefore shown only for nights where the device produced REM.
+
+**Time in bed.**
+- The new `sleep` key has `bed_timestamp` / `out_bed_timestamp`. But in-bed starts a fixed ~4 min
+  before sleep onset and ends exactly at wake, and the device's `sleep_efficiency` sits at 95–98 %
+  almost always.
+- That is an algorithmic envelope, not a measured bed entry. Per §4.2 → report **sleep maintenance
+  efficiency** and WASO, never "sleep efficiency".
+- WASO will often be 0: the band rarely scores brief awakenings. This is stated in the docs.
+
+**Time zones.**
+- Every sleep and workout record carries `timezone` in **15-min units**: 4 = UTC+1, 8 = UTC+2.
+- Travel shows up as 0, 12, 22 (UTC+5:30), 32 and 36.
+- In era A, summer nights mostly carry 4, which suggests the old app stored the *standard* offset
+  without DST.
+- Decision: the local date comes from a configured **home-timezone history**
+  (`[[timezones]] from = …, tz = …`). A record whose offset differs from home by more than DST can
+  explain is flagged `travel`. Travel days are excluded from regularity metrics and use the
+  record's own offset for clock times.
+- Era A's DST-naive offset is never trusted for DST.
+
+**Bad timestamps.**
+- A handful of rows are dated 2000-12-31 (device clock not set). The adapter drops anything before
+  2015-01-01, and anything after the export date.
+
+**HRV.**
+- **No RR intervals and no device HRV anywhere in the export.**
+- The two name-based "hits" are false positives: `abnormalHeartbeatEnable`, and a random file-name
+  fragment.
+- → Recovery runs as **"Recovery (HR + sleep, no HRV)"** per §5.2. This holds unless Gadgetbridge
+  later exposes RR data for the Band 10.
+
+**Workout HR.**
+- The export has **no per-second workout HR**, only session summaries, so strain has to come from
+  what is actually there:
+  1. **Background 1-min HR** (eras A and C) → daily Banister TRIMP as specified in §6.2. At
+     10-min cadence (eras B and D, i.e. **the Band 10 right now**) it falls below the
+     resolution gate.
+  2. **Workout zone durations** → `sport_record` gives seconds in 5 HR zones
+     (`hrm_warm_up / fat_burning / aerobic / anaerobic / extreme`, `reserve_hr_zone = 0`).
+     - If those zones are Xiaomi's %HRmax bands (50–60 / 60–70 / 70–80 / 80–90 / 90–100 % of max
+       HR), that is exactly **Edwards' TRIMP** = Σ zone-minutes × weights 1..5.
+     - It exists for every recorded workout since 2017 and doesn't depend on background cadence.
+     - It is computed from the device's zone classification, which we can't audit. To verify: the
+       zone thresholds shown in Mi Fitness → heart rate zones.
+
+**HRmax.**
+- Workout `max_hrm` reaches 188–194 (football, beach volleyball, free training). That's consistent
+  with 220 − 29 = 191.
+- Auto HRmax = median of the 3 highest session `max_hrm` values in the last 24 months, capped at
+  220 − age + 15 to reject artifacts.
+- The single-sample `heart_rate` maximum (217) is not used.
 
 ## 10. Synthetic generator (Step 2a, outline)
 

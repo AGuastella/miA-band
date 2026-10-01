@@ -38,7 +38,9 @@ ID_COL = re.compile(r"(uid|user|account|did|mac|serial|(^|_)sn$|sid)", re.I)
 GEO = re.compile(r"(lat|lon|lng|latitude|longitude|location|gps|coordinate|address|altitude)", re.I)
 JSON_ID = re.compile(r"(^|\.)(uid|did|sid|mac|sn|serial|device_?id|user_?id)$", re.I)
 TIME_NAME = re.compile(r"(time|date|start|end|bedtime|wake|(^|_)ts$|timestamp|day)", re.I)
-HRV_NAME = re.compile(r"(hrv|rmssd|sdnn|(^|[^a-z])rri?([^a-z]|$)|ibi|rr_?interval|beat|interval)", re.I)
+HRV_NAME = re.compile(r"(hrv|rmssd|sdnn|(^|[^a-z0-9])rri?([^a-z0-9]|$)|(^|_)ibi(_|$)|rr_?interval|beat_?to_?beat|interval)", re.I)
+# Legacy records use per-file storage paths as keys ("2017/04/29/<account>/xiaomisports_app_...").
+FILE_REF_KEY = re.compile(r"^\d{4}/\d{2}/\d{2}/")
 KEY_COL_NAMES = ("key", "type", "data_type", "category")
 VALUE_COL_NAMES = ("value", "data", "content", "detail")
 
@@ -293,6 +295,8 @@ def profile_file(path: Path, tz: ZoneInfo, redact_on: bool, rep: Report, samples
             if not (roles["key"] and roles["value"]):
                 continue
             k = row.get(roles["key"]) or "<empty>"
+            if FILE_REF_KEY.match(k):
+                k = "<file-ref>"     # thousands of one-row path keys: report them as one bucket
             agg = keys[k]
             agg.n += 1
             dev = row.get(roles["device"]) or "-" if roles["device"] else "-"
@@ -496,10 +500,17 @@ def main(argv=None) -> int:
         rep("VERDICT: no key, column or JSON path name suggests RR intervals or HRV.")
         rep("-> HRV (RMSSD) is not computable from this export; recovery uses resting HR + sleep.")
 
+    report, sample_text = rep.text(), "\n".join(samples) + "\n"
+    if redact_on:
+        # The account id also appears inside values (legacy storage paths), not just file names.
+        accounts = {m.group(1) for p in files if (m := re.match(r"^\d+_(\d+)_", p.name))}
+        for acc in accounts:
+            report = report.replace(acc, "<account>")
+            sample_text = sample_text.replace(acc, "<account>")
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "report.txt").write_text(rep.text(), encoding="utf-8")
-    (args.out / "samples.txt").write_text("\n".join(samples) + "\n", encoding="utf-8")
-    sys.stdout.write(rep.text())
+    (args.out / "report.txt").write_text(report, encoding="utf-8")
+    (args.out / "samples.txt").write_text(sample_text, encoding="utf-8")
+    sys.stdout.write(report)
     print(f"\nWrote {args.out}/report.txt and samples.txt", file=sys.stderr)
     return 0
 

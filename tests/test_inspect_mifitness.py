@@ -28,6 +28,9 @@ def make_export(d: Path) -> None:
         {"bedtime": t0 - 86400 * 400, "items": [{"start_time": t0 - 86400 * 400, "state": 3}]}), t0])
     write_csv(d / f"20261001_{ACCOUNT}_MiFitness_hlth_center_fitness_data.csv",
               ["Uid", "Sid", "Key", "Time", "Value", "UpdateTime"], rows)
+    write_csv(d / f"20261001_{ACCOUNT}_MiFitness_user_fitness_data_records.csv",
+              ["uid", "key", "time", "did", "value"],
+              [[ACCOUNT, f"2021/03/05/{ACCOUNT}/xiaomisports_app_014749.RR1BYASE_x", t0, "d", "{}"]])
     write_csv(d / f"20261001_{ACCOUNT}_MiFitness_hlth_center_sport_track_data.csv",
               ["Uid", "Time", "Latitude", "Longitude"], [[ACCOUNT, t0, "40.4168", "-3.7038"]])
 
@@ -47,7 +50,8 @@ def test_end_to_end(tmp_path):
     assert "median Δ 60s" in report
     assert "items[].state" in report and "values{3:1}" in report
     assert "+01:00" in report and "+02:00" in report          # DST-aware local rendering
-    assert "VERDICT: no key, column or JSON path" in report
+    assert "VERDICT: no key, column or JSON path" in report   # 'RR1B' in a path is not RR
+    assert "key '<file-ref>'" in report                      # legacy path keys bucketed
     for text in (report, samples):
         assert ACCOUNT not in text                              # account id masked everywhere
         assert "40.4168" not in text and "-3.7038" not in text  # GPS never printed
