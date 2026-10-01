@@ -315,6 +315,26 @@ is `insufficient_data`.
   - A day whose high-HR periods have c > 2 min gets `strain_quality = low_resolution`. It is
     shown, but excluded from ACWR. **[TBD-data]**
 
+**As implemented (Step 3, approved 2026-10-01).** Only 237 of 818 workouts carry band zone
+durations, so the zone minutes are computed **by us** from the HR samples inside each workout
+window (Edwards zones on %HRmax, weights 1–5). This keeps one definition for all years and
+devices.
+- Requirement for "our" zones: HR at ≤ 2-min cadence covering ≥ 80 % of the workout. Each sample
+  holds until the next one, capped at 2 × cadence.
+- Fallback 1: the band's zone durations (`device_zones`).
+- Fallback 2: none. The workout load is unknown and the day is `insufficient_data`. Nothing is
+  approximated from average HR.
+- `miaband sanity` compares ours against the band's zones wherever both exist, and checks the
+  implied HRmax of the band's zones (avg HR / time-weighted zone midpoint).
+- A workout-free day is a real 0 only if the band was worn ≥ 70 % of 08:00–22:00 local;
+  otherwise it is unknown.
+- Banister TRIMP (HRr ≥ 0.30, ≤ 2-min cadence) is computed per day as a secondary value. It is
+  only used to flag "high HR without a recorded workout?".
+- HRrest for Banister = the trailing 28-day nightly-RHR baseline.
+- HRmax per date = max(220 − age at that date, median of the 3 highest workout maxima in the last
+  24 months, ignoring > 220 − age + 15).
+- τ = "auto": the median workout day maps to strain 12/21.
+
 ### 6.3 Daily strain scale
 
 - Strain(D) = 21 · (1 − e^{−TRIMP(D)/τ}), with τ = 120 by default (config).

@@ -17,7 +17,7 @@ from ..config import Config
 from .timeutil import local_date, local_offsets, zone_offsets
 
 
-def _offsets_for(sessions: pd.DataFrame, col: str, timeline, cfg: Config) -> np.ndarray:
+def record_offsets(sessions: pd.DataFrame, col: str, timeline, cfg: Config) -> np.ndarray:
     """Offset at the `col` endpoint of each session.
 
     The session's own recorded offset wins, except when it is the home zone's offset at the
@@ -39,7 +39,7 @@ def resolve_sources(sessions: pd.DataFrame, priority: tuple[str, ...], timeline,
         return sessions
     rank = {s: i for i, s in enumerate(priority)}
     d = sessions.copy()
-    d["_wake"] = local_date(d["end_ts"], _offsets_for(d, "end_ts", timeline, cfg))
+    d["_wake"] = local_date(d["end_ts"], record_offsets(d, "end_ts", timeline, cfg))
     d["_rank"] = d["source"].map(lambda s: rank.get(s, len(rank)))
     best = d.groupby("_wake")["_rank"].transform("min")
     return d[d["_rank"] == best].drop(columns=["_wake", "_rank"])
@@ -71,8 +71,8 @@ def build_episodes(sessions: pd.DataFrame, timeline: pd.DataFrame, cfg: Config) 
         return pd.DataFrame(columns=cols)
     s = resolve_sources(sessions, cfg.sources.priority, timeline, cfg)
     s = drop_overlaps(s).sort_values("start_ts", kind="stable").reset_index(drop=True)
-    s["off_start_"] = _offsets_for(s, "start_ts", timeline, cfg)
-    s["off_end_"] = _offsets_for(s, "end_ts", timeline, cfg)
+    s["off_start_"] = record_offsets(s, "start_ts", timeline, cfg)
+    s["off_end_"] = record_offsets(s, "end_ts", timeline, cfg)
 
     gap_s = cfg.sufficiency.episode_merge_gap_min * 60
     episodes = []

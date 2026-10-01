@@ -51,6 +51,25 @@ class Physiology:
 
 
 @dataclass(frozen=True)
+class Strain:
+    workout_max_cadence_s: float = 120.0   # our own Edwards needs HR at least every 2 min ...
+    workout_min_coverage: float = 0.80     # ... covering this share of the workout
+    day_wear_window: tuple = (8, 22)       # local hours checked to call a workout-free day a real 0
+    day_wear_min: float = 0.70
+    hrmax_lookback_days: int = 730
+    hrmax_artifact_margin: float = 15.0    # observed maxima above 220-age+15 are rejected
+    tau: float | str = "auto"              # readability scale; "auto": median workout day -> 12/21
+    hrr_floor: float = 0.30                # Banister (secondary) counts samples at >= 30 % HRR
+    banister_max_cadence_s: float = 120.0
+    unrecorded_hint_banister: float = 40.0
+    acwr_acute_days: int = 7
+    acwr_chronic_days: int = 28
+    acwr_max_missing_7: int = 1
+    acwr_max_missing_28: int = 4
+    acwr_min_chronic: float = 10.0
+
+
+@dataclass(frozen=True)
 class Baselines:
     long_days: int = 28
     long_min_n: int = 14
@@ -70,6 +89,7 @@ class Config:
     sleep: Sleep = field(default_factory=Sleep)
     physiology: Physiology = field(default_factory=Physiology)
     baselines: Baselines = field(default_factory=Baselines)
+    strain: Strain = field(default_factory=Strain)
 
     @property
     def tz(self) -> ZoneInfo:

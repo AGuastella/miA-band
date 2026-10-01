@@ -93,32 +93,42 @@ def cmd_show(cfg: Config, args) -> int:
     w = w.tail(args.days + 1)
     print(HRV_NOTICE)
     print()
-    hdr = (f"{'night of':<11} {'sleep':>6} {'bed':>5}-{'wake':<5} {'SME':>4} {'deep/light/REM':>15} "
-           f"{'nap':>4} {'SRI7':>5} {'RHR':>4} {'RHR z':>6}  notes")
+    hdr = (f"{'date':<11} {'sleep':>6} {'bed':>5}-{'wake':<5} {'SME':>4} {'deep/light/REM':>15} "
+           f"{'nap':>4} {'SRI7':>5} {'RHR':>4} {'RHR z':>6} | {'load':>5} {'strain':>6} {'ACWR':>5}  notes")
     print(hdr)
     print("-" * len(hdr))
     for date, r in w.iterrows():
         notes = []
         if r.get("sleep.tst_min:status") != "ok":
-            print(f"{date:<11} {'—':>6}  insufficient data: {r.get('sleep.tst_min:reason')}")
-            continue
-        stages = (f"{_num(r['sleep.deep_min'])}/{_num(r['sleep.light_min'])}/{_num(r['sleep.rem_min'])}"
-                  if r.get("sleep.rem_min:status") == "ok" else "n/a")
-        rhr = _num(r.get("phys.rhr"))
-        z = r.get("rhr.z")
-        if r.get("rhr.z:status") == "ok":
-            zs = f"{z:+.1f}"
-            if r.get("rhr.flag") == 1:
-                notes.append("RHR above baseline")
+            sleep_part = f"{'—':>6} {'no main sleep recorded':<73}"
         else:
-            zs = {"warming_up": "warm", "insufficient_data": "n/a"}.get(r.get("rhr.z:status"), "n/a")
-        if r.get("tst.flag") == 1 and r.get("tst.z:status") == "ok":
-            notes.append("short vs baseline")
-        if r.get("phys.rhr:status") != "ok":
-            notes.append(f"RHR: {r.get('phys.rhr:reason')}")
-        print(f"{date:<11} {_hm(r['sleep.tst_min']):>6} {_hhmm(r['sleep.onset_clock'])}-{_hhmm(r['sleep.wake_clock'])} "
-              f"{_num(r['sleep.sme'] * 100 if not pd.isna(r['sleep.sme']) else np.nan):>3}% {stages:>15} "
-              f"{_num(r['sleep.nap_min']):>4} {_num(r.get('sleep.sri_7d')):>5} {rhr:>4} {zs:>6}  {'; '.join(notes)}")
+            stages = (f"{_num(r['sleep.deep_min'])}/{_num(r['sleep.light_min'])}/{_num(r['sleep.rem_min'])}"
+                      if r.get("sleep.rem_min:status") == "ok" else "n/a")
+            z = r.get("rhr.z")
+            if r.get("rhr.z:status") == "ok":
+                zs = f"{z:+.1f}"
+                if r.get("rhr.flag") == 1:
+                    notes.append("RHR above baseline")
+            else:
+                zs = {"warming_up": "warm", "insufficient_data": "n/a"}.get(r.get("rhr.z:status"), "n/a")
+            if r.get("tst.flag") == 1 and r.get("tst.z:status") == "ok":
+                notes.append("short vs baseline")
+            if r.get("phys.rhr:status") != "ok":
+                notes.append(f"RHR: {r.get('phys.rhr:reason')}")
+            sme = r["sleep.sme"] * 100 if not pd.isna(r["sleep.sme"]) else np.nan
+            sleep_part = (f"{_hm(r['sleep.tst_min']):>6} {_hhmm(r['sleep.onset_clock'])}-{_hhmm(r['sleep.wake_clock'])} "
+                          f"{_num(sme):>3}% {stages:>15} {_num(r['sleep.nap_min']):>4} "
+                          f"{_num(r.get('sleep.sri_7d')):>5} {_num(r.get('phys.rhr')):>4} {zs:>6}")
+        if r.get("strain.load:status") == "ok":
+            load, strain = _num(r.get("strain.load")), _num(r.get("strain.strain"), "{:.1f}")
+        else:
+            load, strain = "?", "?"
+            notes.append(f"load: {r.get('strain.load:reason')}")
+        acwr = _num(r.get("acwr.ewma"), "{:.2f}") if r.get("acwr.ewma:status") == "ok" else {
+            "warming_up": "warm"}.get(r.get("acwr.ewma:status"), "n/a")
+        if r.get("strain.unrecorded_hint") == 1:
+            notes.append("high HR without a recorded workout?")
+        print(f"{date:<11} {sleep_part} | {load:>5} {strain:>6} {acwr:>5}  {'; '.join(notes)}")
     # latest values that exist (tonight's RHR may be missing even when the baseline isn't)
     last = w.ffill().iloc[-1]
     print()
@@ -126,6 +136,8 @@ def cmd_show(cfg: Config, args) -> int:
           + " | 28-day baseline: RHR " + _num(last.get("rhr.base28"), "{:.1f}")
           + ", sleep " + _hm(last.get("tst.base28")))
     print("SME = sleep maintenance efficiency (TST / sleep period); the band has no real time-in-bed.")
+    print("load = Edwards TRIMP of the day's workouts; strain = 21*(1-exp(-load/tau)), a readability scale;")
+    print("ACWR = EWMA 7d/28d load ratio: descriptive only (weak evidence as an injury predictor).")
     return 0
 
 
@@ -133,8 +145,8 @@ def cmd_sanity(cfg: Config, args) -> int:
     """Our nightly values next to the band's own, for the last N nights."""
     con = store.connect(cfg.store)
     tables = pipeline.load_tables(con)
-    wide = pipeline.compute_nightly(tables, cfg)
-    if "episode" not in wide:
+    wide, workouts = pipeline.compute_daily(tables, cfg)
+    if "tst_min" not in wide:
         print("no nights to compare: import an export first")
         return 1
     nights = wide[wide["episode"].notna()].tail(args.days).copy()
@@ -171,7 +183,48 @@ def cmd_sanity(cfg: Config, args) -> int:
         print(f"our RHR − band's daily 'resting HR': mean {r.mean():+.1f} bpm "
               "(expected < 0: ours is the sleeping nadir)")
     print("Compare a few nights with the sleep screen in Mi Fitness, too.")
+    _sanity_strain(wide, workouts)
     return 0
+
+
+ZONE_MID = np.array([0.55, 0.65, 0.75, 0.85, 0.95])
+
+
+def _sanity_strain(wide: pd.DataFrame, wl: pd.DataFrame) -> None:
+    from scipy.stats import spearmanr
+    print()
+    print("=== Training load (Edwards) ===")
+    if wl.empty:
+        print("no workouts")
+        return
+    wl = wl.assign(year=pd.to_datetime(wl["date"]).dt.year)
+    by = wl.pivot_table(index="year", columns="method", values="start_ts", aggfunc="count", fill_value=0)
+    print("workouts per year by method (hr_ours = our zones from >= 1/2-min HR; device_zones = band's;"
+          " low_resolution = no load):")
+    print(by.to_string())
+    both = wl.dropna(subset=["load_ours", "load_device"])
+    if len(both) >= 5:
+        ratio = both["load_ours"] / both["load_device"]
+        rho = spearmanr(both["load_ours"], both["load_device"]).statistic
+        print(f"\nours vs band zones on {len(both)} workouts with both: median ratio {ratio.median():.2f} "
+              f"(IQR {ratio.quantile(.25):.2f}-{ratio.quantile(.75):.2f}), Spearman rho {rho:.2f}")
+    z = wl[[f"zone{i}_s" for i in range(1, 6)]].to_numpy(dtype=float)
+    dur = (wl["end_ts"] - wl["start_ts"]).to_numpy(dtype=float)
+    ok = ~np.isnan(z).any(axis=1) & (z.sum(axis=1) >= 0.9 * dur) & wl["avg_hr"].notna().to_numpy()
+    if ok.sum() >= 5:
+        frac = (z[ok] * ZONE_MID).sum(axis=1) / z[ok].sum(axis=1)
+        implied = wl.loc[ok, "avg_hr"].to_numpy(dtype=float) / frac
+        cv = implied.std() / implied.mean()
+        print(f"band zones: implied HRmax = avg HR / zone midpoint = {np.median(implied):.0f} bpm "
+              f"(CV {cv:.1%}, n={ok.sum()}) -> " + ("consistent with %HRmax zones" if cv < 0.05 else
+                                                    "spread is large: zones may not be plain %HRmax"))
+    last = wide.dropna(subset=["hr_max"]).iloc[-1]
+    print(f"HRmax in use today: {last['hr_max']:.0f} bpm ({last['hr_max_basis']}); strain tau = {last['tau']:.0f}")
+    print("\nlast 10 workouts:")
+    print(f"{'date':<11} {'sport':<18} {'min':>4} {'avgHR':>5} {'ours':>6} {'band':>6}  method")
+    for r in wl.tail(10).itertuples(index=False):
+        print(f"{pd.Timestamp(r.date):%Y-%m-%d} {str(r.sport)[:18]:<18} {(r.end_ts - r.start_ts) / 60:>4.0f} "
+              f"{_num(r.avg_hr):>5} {_num(r.load_ours):>6} {_num(r.load_device):>6}  {r.method}")
 
 
 def cmd_demo(cfg: Config, args) -> int:

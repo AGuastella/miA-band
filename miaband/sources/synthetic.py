@@ -35,6 +35,7 @@ class Scenario:
     noise_sd: float = 0.0
     day_hr: float = 72.0
     nadir_hr: float = 52.0
+    hr_max: float = 191.0                                   # the band's zone thresholds use this
     bedtime: dt.time = dt.time(23, 30)
     sleep_hours: float = 7.5
     bedtime_jitter_min: float = 0.0
@@ -127,10 +128,11 @@ def generate(sc: Scenario) -> tuple[CanonicalBatch, pd.DataFrame]:
         if wake in sc.workouts:
             t, minutes, bpm = sc.workouts[wake]
             ws = _utc(dt.datetime.combine(wake, t), tz)
+            zone = int(np.searchsorted((0.5, 0.6, 0.7, 0.8, 0.9), bpm / sc.hr_max, side="right"))
             workouts.append(dict(start_ts=ws, end_ts=ws + minutes * 60, sport="beach_volleyball",
                                  tz_offset_min=_offset_min(ws, tz), avg_hr=float(bpm), max_hr=float(bpm),
                                  min_hr=float(bpm), dev_train_load=np.nan,
-                                 **{f"zone{z}_s": 0.0 for z in range(1, 6)}))
+                                 **{f"zone{z}_s": float(minutes * 60 if z == zone else 0) for z in range(1, 6)}))
 
     # ---- HR stream over the whole span
     t0 = _utc(dt.datetime.combine(sc.first_wake - dt.timedelta(days=1), dt.time(12)), home)
