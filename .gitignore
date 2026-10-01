@@ -13,3 +13,5 @@ __pycache__/
 .venv/
 inspect_mifitness_out/
 *.zip
+config.toml
+*.egg-info/

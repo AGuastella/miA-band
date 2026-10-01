@@ -1,0 +1,44 @@
+# Copy to config.toml (git-ignored) and adjust.
+
+# Fallback zone, used only when no sleep/workout record gives the offset in force
+# for that day (records carry their own offset; see docs/SPEC.md §9.2).
+timezone = "Europe/Madrid"
+store = "data/miaband.sqlite"
+
+[person]
+age = 29
+age_as_of = "2026-10-01"
+sex = "male"
+# hr_max = 192         # unset = auto (step 3)
+resting_hr = 65        # prior until the nightly RHR baseline exists
+
+[sources]
+priority = ["gadgetbridge", "mifitness", "synthetic"]
+
+[sufficiency]
+night_hr_coverage_min = 0.80
+main_sleep_min_hours = 3.0
+episode_merge_gap_min = 60
+wear_gap_min_floor = 10       # non-wear when consecutive HR samples are > max(3*cadence, this) min apart
+
+[sleep]
+regularity_window_days = 7
+regularity_min_nights = 5
+tz_change_exclude_nights = 2
+
+[physiology]
+rhr_skip_onset_min = 30
+rhr_window_min = 10           # widened to 3*cadence at sparse sampling
+rhr_window_min_fill = 0.70
+
+[baselines]
+long_days = 28
+long_min_n = 14
+short_days = 7
+short_min_n = 4
+flag_sd = 1.5
+
+[baselines.spread_floor]
+rhr = 1.0
+tst_min = 20.0
+sleep_hr_mean = 1.0
