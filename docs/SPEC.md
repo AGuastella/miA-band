@@ -4,8 +4,8 @@ Status: **draft, awaiting approval**. Everything below is defined against a cano
 schema. Source adapters (Mi Fitness CSV export, then Gadgetbridge) only have to produce that
 schema. Items that depend on real data are marked **[TBD-data]** and collected in §9.
 
-User parameters known so far: age 29, max HR unknown, resting HR ≈ 60–70, Europe/Madrid,
-beach volleyball 3–4×/week. Runs on Windows/WSL and a Linux home server. Target Python ≥ 3.11
+User parameters: male, age 29, 179 cm / 79 kg (not used by any current metric), max HR unknown,
+resting HR ≈ 60–70, Europe/Madrid, beach volleyball 3–4×/week with a workout started on the band. Runs on Windows/WSL and a Linux home server. Target Python ≥ 3.11
 (for `tomllib` and `zoneinfo`).
 
 ---
@@ -293,7 +293,7 @@ For every nightly metric x (RHR, ln RMSSD, TST, mean sleeping HR):
 
 - HRr(t) = clip((HR − HRrest) / (HRmax − HRrest), 0, 1).
 - TRIMP = Σ Δtᵢ[min] · HRrᵢ · a · e^{b·HRrᵢ}
-  - a = 0.64, b = 1.92 (male) or a = 0.86, b = 1.67 (female) (Banister 1991).
+  - a = 0.64, b = 1.92 (Banister 1991, male coefficients; the female set is 0.86/1.67).
 - Only samples with HRr ≥ 0.30 (`strain.hrr_floor`) count, so 24 h of background HR from sitting
   and walking doesn't pile up as "training".
 - Δtᵢ = min(gap to the next sample, `gap_max`). Sparse sampling can't be stretched across
@@ -416,6 +416,22 @@ The output records which rule fired and the field values it saw.
 | Whether each export is a full snapshot or incremental | ingest strategy sanity | two exports |
 | Mi Fitness file layout (`hlth_center_fitness_data.csv` key/value rows?) | adapter | export |
 
+### 9.1 What the Mi Fitness app shows (screenshot, 2026-09-30, a volleyball day)
+
+- Daily HR range 54–148, average 95, **"Resting 68"**, and a second figure "Average heart rate 62".
+  These are device-computed daily values. If the export contains them, they go into an optional
+  `device_daily_summary` table and are used **only for sanity checks**. Our RHR is the sleeping
+  nadir (§5.1), so it should come out *below* 68.
+- Zone minutes: Light 71, Intensive 30, Aerobic 22, Anaerobic 0, VO₂max 0. Xiaomi doesn't document
+  its zone thresholds, so these can't be compared to ours one-to-one. They're a rough check on how
+  much time was spent at higher HR.
+- **The peak HR on a playing day was 148.** On these numbers, wrist-measured volleyball doesn't come
+  close to the 191 age-predicted max: the auto HRmax stays at 191, and sessions will mostly fall
+  at 50–75 % HRR. That's fine for load *trends*, since the error is consistent. A one-off maximal
+  effort (e.g. hill repeats with the band started as a workout) would replace the age formula with
+  a measured value. Optical HR during arm-heavy play may also under-read; we can't correct that,
+  only state it.
+
 ## 10. Synthetic generator (Step 2a, outline)
 
 `miaband.sources.synthetic.generate(scenario, seed) -> (CanonicalBatch, GroundTruth)`
@@ -444,7 +460,7 @@ timezone = "Europe/Madrid"
 
 [person]
 age = 29
-sex = "?"            # needed for Banister coefficients
+sex = "male"         # selects Banister coefficients
 hr_max = ""          # empty = auto (max(220-age, observed reliable max))
 resting_hr = 65      # prior until the nightly RHR baseline exists
 
