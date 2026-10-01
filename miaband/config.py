@@ -39,6 +39,7 @@ class Sufficiency:
 class Sleep:
     regularity_window_days: int = 7
     regularity_min_nights: int = 5
+    sri_min_pair_coverage: float = 0.5
     tz_change_exclude_nights: int = 2
 
 

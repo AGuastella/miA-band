@@ -35,7 +35,8 @@ def nightly_rhr(nights: pd.DataFrame, hr: pd.DataFrame, worn: pd.DataFrame, cfg:
         ts, bpm = ts_all[i:j], bpm_all[i:j]
         if coverage < suff.night_hr_coverage_min or len(ts) < 3:
             row["phys_status"] = "insufficient_data"
-            row["phys_reason"] = f"HR covers {coverage:.0%} of the sleep period"
+            row["phys_reason"] = (f"HR covers {coverage:.0%} of the sleep period" if coverage > 0 else
+                                  "no HR samples during this night (band off, or not in this export yet)")
             rows.append(row)
             continue
         cadence = float(np.median(np.diff(ts)))

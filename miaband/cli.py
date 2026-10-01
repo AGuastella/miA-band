@@ -119,7 +119,8 @@ def cmd_show(cfg: Config, args) -> int:
         print(f"{date:<11} {_hm(r['sleep.tst_min']):>6} {_hhmm(r['sleep.onset_clock'])}-{_hhmm(r['sleep.wake_clock'])} "
               f"{_num(r['sleep.sme'] * 100 if not pd.isna(r['sleep.sme']) else np.nan):>3}% {stages:>15} "
               f"{_num(r['sleep.nap_min']):>4} {_num(r.get('sleep.sri_7d')):>5} {rhr:>4} {zs:>6}  {'; '.join(notes)}")
-    last = w.iloc[-1]
+    # latest values that exist (tonight's RHR may be missing even when the baseline isn't)
+    last = w.ffill().iloc[-1]
     print()
     print("7-day means: sleep " + _hm(last.get("tst.mean7")) + ", RHR " + _num(last.get("rhr.mean7"), "{:.1f}")
           + " | 28-day baseline: RHR " + _num(last.get("rhr.base28"), "{:.1f}")

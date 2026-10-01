@@ -9,7 +9,8 @@ Stages are reported only for nights where the device produced REM (older bands c
 
 Regularity over a rolling window ending at each wake date:
   SRI (Phillips et al. 2017) on a per-minute local-clock sleep/wake grid, comparing each day
-  with the previous one; minutes with unknown state (not worn, not asleep) are excluded.
+  with the previous one; minutes with unknown state (not worn, not asleep) are excluded, and a
+  day pair counts only if >= `sri_min_pair_coverage` of its minutes are known on both days.
   Circular SD of onset and wake clock times (minutes); 23:50 vs 00:10 is 20 min apart.
 Nights within `tz_change_exclude_nights` after a time-zone change are excluded from both.
 """
@@ -165,7 +166,7 @@ def regularity(nights: pd.DataFrame, grid: np.ndarray, grid_day0: np.datetime64,
                 continue
             a, b = grid[i], grid[i - 1]
             ok = ~np.isnan(a) & ~np.isnan(b)
-            if ok.sum() < 0.8 * 1440:
+            if ok.sum() < cfg.sleep.sri_min_pair_coverage * 1440:
                 continue
             pairs += 1
             known += ok.sum()

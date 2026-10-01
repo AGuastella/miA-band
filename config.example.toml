@@ -24,6 +24,7 @@ wear_gap_min_floor = 10       # non-wear when consecutive HR samples are > max(3
 [sleep]
 regularity_window_days = 7
 regularity_min_nights = 5
+sri_min_pair_coverage = 0.5   # share of a day pair's minutes with known sleep/wake state
 tz_change_exclude_nights = 2
 
 [physiology]

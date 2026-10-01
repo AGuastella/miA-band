@@ -152,3 +152,8 @@ def test_era_change_restarts_baseline():
     first_new = w.loc[pd.Timestamp("2026-03-21")]
     assert first_new.rhr == pytest.approx(58.0)
     assert first_new.rhr_base_status == "warming_up" and not first_new.rhr_flag
+
+
+def test_sri_survives_one_unworn_night_in_window():
+    w = run(Scenario(first_wake=D(2026, 5, 1), nights=21, missing_nights={D(2026, 5, 15)}))
+    assert w.loc[D(2026, 5, 18)].sri == pytest.approx(100.0)   # pairs with 5/15 still count (~69 % known)
