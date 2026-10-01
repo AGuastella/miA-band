@@ -50,7 +50,11 @@ def cmd_import_mifitness(cfg: Config, args) -> int:
     if digest and store.already_ingested(con, digest):
         print("note: this exact export was imported before; re-importing (idempotent).")
     print(f"reading {folder} ...", file=sys.stderr)
-    batch = mifitness.read_export(folder)
+    try:
+        batch = mifitness.read_export(folder)
+    except mifitness.ImportError_ as e:
+        print(f"import failed: {e}", file=sys.stderr)
+        return 2
     print("\n".join("  " + n for n in batch.notes))
     written = store.write_batch(con, batch, digest)
     print("written: " + ", ".join(f"{k}={v:,}" for k, v in written.items()))
@@ -191,7 +195,9 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default="config.toml", help="TOML config (default: config.toml if present)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("import-mifitness"); p.add_argument("folder")
+    p = sub.add_parser("import-mifitness")
+    p.add_argument("folder", nargs="?", default="data/mifitness",
+                   help="unzipped export folder (default: data/mifitness)")
     sub.add_parser("compute")
     p = sub.add_parser("show"); p.add_argument("--days", type=int, default=7)
     p = sub.add_parser("sanity"); p.add_argument("--days", type=int, default=30)
