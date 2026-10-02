@@ -38,7 +38,8 @@ python -m pytest                          # synthetic-data tests
 ```sh
 python -m miaband import-mifitness data/mifitness   # idempotent: re-run on every new export
 python -m miaband compute                           # full recompute of nightly metrics
-python -m miaband show --days 7                     # last 7 nights
+python -m miaband show --days 7                     # last 7 days + today's recovery/readiness
+python -m miaband show --date 2026-07-15            # same, as of any past day
 python -m miaband sanity --days 30                  # our numbers next to the band's own
 python -m miaband demo                              # try it on synthetic data (data/demo.sqlite)
 ```

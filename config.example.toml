@@ -43,3 +43,33 @@ flag_sd = 1.5
 rhr = 1.0
 tst_min = 20.0
 sleep_hr_mean = 1.0
+
+[strain]
+# hr_max is under [person]; tau = "auto" maps your median workout day to strain 12/21
+tau = "auto"
+day_wear_min = 0.70
+
+[recovery]
+# no HRV from this source: resting HR + sleep. Judgment weights, not literature values.
+weights = { rhr = 0.5, sleep = 0.5 }
+required = ["rhr", "sleep"]
+bands = { low = 33, high = 67 }
+
+# Readiness: first matching rule wins. Fields: recovery.status, recovery.score, recovery.band,
+# rhr.z, rhr.flag, sleep.z, sleep.flag, sleep.tst_min, acwr.value, acwr.status, load.yesterday.
+# A term on a missing value is false. Uncomment to replace the built-in rules.
+# [[readiness.rules]]
+# when = [{ field = "recovery.status", op = "!=", value = "ok" }]
+# say = "Insufficient data for a recommendation"
+# [[readiness.rules]]
+# when = [{ field = "rhr.z", op = ">=", value = 2.0 }, { field = "sleep.flag", op = "==", value = true }]
+# say = "Resting HR well above baseline after a short night: possible illness or high fatigue, rest"
+# [[readiness.rules]]
+# when = [{ field = "recovery.score", op = "<", value = 34 }]
+# say = "Recovery day recommended"
+# [[readiness.rules]]
+# when = [{ field = "acwr.value", op = ">", value = 1.5 }]
+# say = "Load spike vs your last 4 weeks: keep intensity down"
+# [[readiness.rules]]
+# when = []
+# say = "Train as planned"

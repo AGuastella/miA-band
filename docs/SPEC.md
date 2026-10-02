@@ -394,6 +394,15 @@ Components for date D. The sign is set so that **positive = better**:
   - **The weights themselves are judgment calls, not literature values.** That's why they're in
     config and every score can be decomposed.
 
+**As implemented (Step 4).**
+- Components are RHR and TST only: there is no HRV in this source.
+- Weights are 0.5 / 0.5, and both components are required.
+- The z-scores come from the per-device-era 28-day baselines of §5.3.
+- Each day stores `recovery.z_*`, `recovery.pts_*` and the score; the points always sum to
+  score − 50.
+- `miaband show --date YYYY-MM-DD` prints the decomposition for any day, so a well-covered
+  historical period (e.g. July 2026) can be used while recent data is incomplete.
+
 ## 8. Readiness
 
 An ordered rule list in config. The first match wins. A condition is a list of

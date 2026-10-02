@@ -79,6 +79,33 @@ class Baselines:
     spread_floor: dict = field(default_factory=lambda: {"rhr": 1.0, "tst_min": 20.0, "sleep_hr_mean": 1.0})
 
 
+DEFAULT_RULES = (
+    {"when": [{"field": "recovery.status", "op": "!=", "value": "ok"}],
+     "say": "Insufficient data for a recommendation"},
+    {"when": [{"field": "rhr.z", "op": ">=", "value": 2.0}, {"field": "sleep.flag", "op": "==", "value": True}],
+     "say": "Resting HR well above baseline after a short night: possible illness or high fatigue, rest"},
+    {"when": [{"field": "recovery.score", "op": "<", "value": 34}],
+     "say": "Recovery day recommended"},
+    {"when": [{"field": "acwr.value", "op": ">", "value": 1.5}],
+     "say": "Load spike vs your last 4 weeks: keep intensity down"},
+    {"when": [{"field": "recovery.score", "op": ">=", "value": 67}, {"field": "acwr.value", "op": "<", "value": 0.8}],
+     "say": "Well recovered and under-loaded: room to push"},
+    {"when": [], "say": "Train as planned"},
+)
+
+
+@dataclass(frozen=True)
+class Recovery:
+    weights: dict = field(default_factory=lambda: {"rhr": 0.5, "sleep": 0.5})
+    required: tuple = ("rhr", "sleep")
+    bands: dict = field(default_factory=lambda: {"low": 33, "high": 67})
+
+
+@dataclass(frozen=True)
+class Readiness:
+    rules: tuple = DEFAULT_RULES
+
+
 @dataclass(frozen=True)
 class Config:
     timezone: str = "Europe/Madrid"
@@ -90,6 +117,8 @@ class Config:
     physiology: Physiology = field(default_factory=Physiology)
     baselines: Baselines = field(default_factory=Baselines)
     strain: Strain = field(default_factory=Strain)
+    recovery: Recovery = field(default_factory=Recovery)
+    readiness: Readiness = field(default_factory=Readiness)
 
     @property
     def tz(self) -> ZoneInfo:

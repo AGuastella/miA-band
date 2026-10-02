@@ -13,6 +13,7 @@ from .features.baselines import trailing_baseline
 from .features.nights import build_episodes, episode_segments
 from .features.physiology import nightly_rhr
 from .features.sleep import nightly_sleep, regularity, sleep_wake_grid
+from .features.recovery import add_recovery_and_readiness
 from .features.strain import daily_strain
 from .features.timeutil import offset_timeline
 from .features.wear import valid_hr, worn_intervals
@@ -81,7 +82,8 @@ def compute_daily(tables: dict[str, pd.DataFrame], cfg: Config) -> tuple[pd.Data
     strain, workouts = daily_strain(days, w, ctx["hr"], ctx["worn"], ctx["timeline"], rest, cfg)
     strain["date"] = pd.to_datetime(strain["date"])
     wide = strain.merge(nightly, on="date", how="left") if "episode" in nightly else strain.assign(episode=np.nan)
-    return wide.sort_values("date").reset_index(drop=True), workouts
+    wide = add_recovery_and_readiness(wide.sort_values("date").reset_index(drop=True), cfg)
+    return wide, workouts
 
 
 def to_long(wide: pd.DataFrame) -> pd.DataFrame:
@@ -103,6 +105,14 @@ def to_long(wide: pd.DataFrame) -> pd.DataFrame:
             add("strain.hr_max", r.hr_max, "ok", r.hr_max_basis)
             add("acwr.ewma", r.acwr, r.acwr_status, r.acwr_reason)
             add("acwr.rolling", r.acwr_rolling, r.acwr_status, r.acwr_reason)
+        if hasattr(r, "recovery_status"):
+            add("recovery.score", r.recovery, r.recovery_status, r.recovery_reason)
+            for c in ("rhr", "sleep"):
+                if hasattr(r, f"recovery_z_{c}"):
+                    add(f"recovery.z_{c}", getattr(r, f"recovery_z_{c}"), r.recovery_status, r.recovery_reason)
+                    add(f"recovery.pts_{c}", getattr(r, f"recovery_pts_{c}"), r.recovery_status, r.recovery_reason)
+            if r.readiness_rule is not None and not pd.isna(r.readiness_rule):
+                add("readiness.rule", r.readiness_rule, "ok", r.readiness)
         if not has_night:
             for m in NIGHT_METRICS + STAGE_METRICS + ["rhr", "sleep_hr_mean"]:
                 add(f"sleep.{m}" if m not in ("rhr", "sleep_hr_mean") else f"phys.{m}", None,
@@ -128,6 +138,7 @@ def to_long(wide: pd.DataFrame) -> pd.DataFrame:
             add(f"{pre}.z", getattr(r, f"{pre}_z"), st, why)
             add(f"{pre}.flag", float(bool(getattr(r, f"{pre}_flag"))), st, why)
             add(f"{pre}.base28", getattr(r, f"{pre}_base_center"), st, why)
+            add(f"{pre}.spread28", getattr(r, f"{pre}_base_spread"), st, why)
             add(f"{pre}.mean7", getattr(r, f"{pre}_mean7"),
                 "ok" if not pd.isna(getattr(r, f"{pre}_mean7")) else "insufficient_data")
     return pd.DataFrame(rows, columns=["date", "metric", "value", "status", "reason"])

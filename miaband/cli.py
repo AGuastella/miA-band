@@ -84,13 +84,44 @@ def _daily_wide(con) -> pd.DataFrame:
     return pd.concat([val, st, why], axis=1).sort_index()
 
 
+def _summary(date, r) -> None:
+    print(f"=== {date} ===")
+    st = r.get("recovery.score:status")
+    if st == "ok":
+        score = r["recovery.score"]
+        band = "low" if score <= 33 else "high" if score >= 67 else "moderate"
+        print(f"Recovery (resting HR + sleep, no HRV): {score:.0f}/100 ({band})")
+        print(f"  resting HR {_num(r.get('phys.rhr'), '{:.1f}')} bpm vs baseline {_num(r.get('rhr.base28'), '{:.1f}')}"
+              f" ±{_num(r.get('rhr.spread28'), '{:.1f}')} -> z {r.get('recovery.z_rhr'):+.2f} (higher RHR = negative)"
+              f" -> {r.get('recovery.pts_rhr'):+.0f} pts")
+        print(f"  sleep {_hm(r.get('sleep.tst_min'))} vs baseline {_hm(r.get('tst.base28'))}"
+              f" ±{_num(r.get('tst.spread28'))} min -> z {r.get('recovery.z_sleep'):+.2f}"
+              f" -> {r.get('recovery.pts_sleep'):+.0f} pts")
+        print("  (score = 50 + the points above; weights in config [recovery])")
+    else:
+        print(f"Recovery: {st or 'n/a'} — {r.get('recovery.score:reason') or 'no data'}")
+    rule = r.get("readiness.rule")
+    if rule is not None and not pd.isna(rule):
+        print(f"Readiness: {r.get('readiness.rule:reason')}   [rule {int(rule)}]")
+    acwr = (f"{r['acwr.ewma']:.2f}" if r.get("acwr.ewma:status") == "ok"
+            else f"n/a ({r.get('acwr.ewma:reason')})")
+    print(f"Load today: {_num(r.get('strain.load'))} (strain {_num(r.get('strain.strain'), '{:.1f}')}), ACWR {acwr}")
+    print()
+
+
 def cmd_show(cfg: Config, args) -> int:
     con = store.connect(cfg.store)
     w = _daily_wide(con)
     if w.empty:
         print("no daily metrics: run `python -m miaband compute` first")
         return 1
+    if args.date:
+        if args.date not in w.index:
+            print(f"{args.date} is outside the data ({w.index.min()} -> {w.index.max()})")
+            return 1
+        w = w.loc[:args.date]
     w = w.tail(args.days + 1)
+    _summary(w.index[-1], w.iloc[-1])
     print(HRV_NOTICE)
     print()
     hdr = (f"{'date':<11} {'sleep':>6} {'bed':>5}-{'wake':<5} {'SME':>4} {'deep/light/REM':>15} "
@@ -152,6 +183,9 @@ def cmd_sanity(cfg: Config, args) -> int:
     if "tst_min" not in wide:
         print("no nights to compare: import an export first")
         return 1
+    if args.date:
+        wide = wide[wide["date"] <= pd.Timestamp(args.date)]
+        workouts = workouts[pd.to_datetime(workouts["date"]) <= pd.Timestamp(args.date)] if not workouts.empty else workouts
     nights = wide[wide["episode"].notna()].tail(args.days).copy()
     if nights.empty:
         print("no nights to compare")
@@ -273,6 +307,7 @@ def cmd_demo(cfg: Config, args) -> int:
     store.write_batch(con, batch)
     pipeline.run(con, cfg)
     print(f"demo data written to {path}; showing it:\n")
+    args.date = None
     return cmd_show(Config(**{**cfg.__dict__, "store": path}), args)
 
 
@@ -286,7 +321,9 @@ def main(argv=None) -> int:
                    help="unzipped export folder (default: data/mifitness)")
     sub.add_parser("compute")
     p = sub.add_parser("show"); p.add_argument("--days", type=int, default=7)
+    p.add_argument("--date", help="as-of date YYYY-MM-DD (default: last day with data)")
     p = sub.add_parser("sanity"); p.add_argument("--days", type=int, default=30)
+    p.add_argument("--date", help="as-of date YYYY-MM-DD (default: last day with data)")
     p = sub.add_parser("demo"); p.add_argument("--db", default="data/demo.sqlite"); p.add_argument("--days", type=int, default=7)
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
