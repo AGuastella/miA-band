@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>miA-band</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="bar">
+  <h1>miA-band</h1>
+  <div class="controls" role="group" aria-label="Date and range">
+    <button id="prev" type="button" aria-label="Previous day">‹</button>
+    <input id="date" type="date" aria-label="Day">
+    <button id="next" type="button" aria-label="Next day">›</button>
+    <div class="seg" role="radiogroup" aria-label="Chart window">
+      <button type="button" data-days="28" aria-pressed="true">28 d</button>
+      <button type="button" data-days="90" aria-pressed="false">90 d</button>
+      <button type="button" data-days="365" aria-pressed="false">1 y</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <p class="notice" id="notice">HRV is not available from this source (no beat-to-beat data): recovery uses resting HR and sleep only.</p>
+
+  <section class="cards" aria-label="Selected day">
+    <article class="card" id="card-recovery">
+      <h2>Recovery</h2>
+      <div class="hero"><span id="rec-score">–</span><span class="unit">/100</span></div>
+      <div id="rec-band" class="status"></div>
+      <div id="rec-parts" class="parts"></div>
+      <p id="rec-reason" class="muted"></p>
+    </article>
+    <article class="card" id="card-readiness">
+      <h2>Readiness</h2>
+      <p id="readiness" class="big-text">–</p>
+      <p class="muted">First matching rule from config <code>[readiness]</code>.</p>
+    </article>
+    <article class="card">
+      <h2>Sleep</h2>
+      <div class="hero"><span id="sleep-tst">–</span></div>
+      <dl class="kv" id="sleep-kv"></dl>
+    </article>
+    <article class="card">
+      <h2>Resting HR</h2>
+      <div class="hero"><span id="rhr">–</span><span class="unit">bpm</span></div>
+      <dl class="kv" id="rhr-kv"></dl>
+    </article>
+    <article class="card">
+      <h2>Training load</h2>
+      <div class="hero"><span id="load">–</span><span class="unit">Edwards</span></div>
+      <dl class="kv" id="load-kv"></dl>
+    </article>
+  </section>
+
+  <section class="charts" aria-label="Trends">
+    <figure class="chart"><figcaption>Recovery score <span class="muted">(33 / 67 band edges)</span></figcaption><div class="plot"><canvas id="c-recovery"></canvas></div><p class="gaps" id="g-recovery"></p></figure>
+    <figure class="chart"><figcaption>Resting HR, bpm <span class="muted">(grey: 28-day baseline ± spread)</span></figcaption><div class="plot"><canvas id="c-rhr"></canvas></div><p class="gaps" id="g-rhr"></p></figure>
+    <figure class="chart"><figcaption>Sleep, hours <span class="muted">(line: 28-day baseline)</span></figcaption><div class="plot"><canvas id="c-sleep"></canvas></div><p class="gaps" id="g-sleep"></p></figure>
+    <figure class="chart"><figcaption>Daily training load, Edwards TRIMP</figcaption><div class="plot"><canvas id="c-load"></canvas></div><p class="gaps" id="g-load"></p></figure>
+    <figure class="chart"><figcaption>ACWR, EWMA 7 d / 28 d <span class="muted">(shaded 0.8–1.3: reference only, not an injury predictor)</span></figcaption><div class="plot"><canvas id="c-acwr"></canvas></div><p class="gaps" id="g-acwr"></p></figure>
+    <figure class="chart"><figcaption>Sleep Regularity Index, 7 d</figcaption><div class="plot"><canvas id="c-sri"></canvas></div><p class="gaps" id="g-sri"></p></figure>
+  </section>
+
+  <details class="table-view">
+    <summary>Table view of this window</summary>
+    <div class="scroll"><table id="table"></table></div>
+  </details>
+</main>
+
+<script src="/static/chart.umd.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

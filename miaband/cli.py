@@ -5,6 +5,7 @@
   python -m miaband show [--days 7]                      # today + the last N days
   python -m miaband sanity [--days 60]                   # our numbers vs the band's own
   python -m miaband demo                                 # synthetic data into data/demo.sqlite
+  python -m miaband serve                                # dashboard on http://127.0.0.1:8765
 """
 from __future__ import annotations
 
@@ -299,6 +300,18 @@ def _sanity_strain(wide: pd.DataFrame, wl: pd.DataFrame) -> None:
               f"{_num(r.avg_hr):>5} {_num(r.load_ours):>6} {_num(r.load_device):>6}  {r.method}")
 
 
+def cmd_serve(cfg: Config, args) -> int:
+    try:
+        import uvicorn
+        from .web.app import create_app
+    except ImportError:
+        print('the dashboard needs the web extra: pip install -e ".[web]"', file=sys.stderr)
+        return 2
+    print(f"miA-band dashboard on http://{args.host}:{args.port}  (store: {cfg.store}; Ctrl+C to stop)")
+    uvicorn.run(create_app(cfg.store), host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
 def cmd_demo(cfg: Config, args) -> int:
     from .sources.synthetic import Scenario, generate
     today = dt.date.today()
@@ -331,7 +344,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("sanity"); p.add_argument("--days", type=int, default=30)
     p.add_argument("--date", help="as-of date YYYY-MM-DD (default: last day with data)")
     p = sub.add_parser("demo"); p.add_argument("--db", default="data/demo.sqlite"); p.add_argument("--days", type=int, default=7)
+    p = sub.add_parser("serve", help="local dashboard (read-only over the computed store)")
+    p.add_argument("--host", default="127.0.0.1", help="127.0.0.1 = this machine only")
+    p.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     return {"import-mifitness": cmd_import_mifitness, "compute": cmd_compute, "show": cmd_show,
-            "sanity": cmd_sanity, "demo": cmd_demo}[args.cmd](cfg, args)
+            "sanity": cmd_sanity, "demo": cmd_demo, "serve": cmd_serve}[args.cmd](cfg, args)

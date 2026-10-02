@@ -45,3 +45,13 @@ python -m miaband demo                              # try it on synthetic data (
 ```
 
 What each metric means, and why it's computed the way it is: `docs/SPEC.md`.
+
+## Step 5: dashboard
+
+```sh
+pip install -e ".[web]"
+python -m miaband serve            # http://127.0.0.1:8765  (e.g. ?date=2026-07-20&days=90)
+```
+
+Read-only over the computed store: run `compute` after each import, then reload the page.
+Chart.js is vendored in `miaband/web/static/` (MIT licence), so the page makes no external requests.
