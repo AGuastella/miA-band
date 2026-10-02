@@ -140,7 +140,8 @@ def regularity(nights: pd.DataFrame, grid: np.ndarray, grid_day0: np.datetime64,
     win, min_n = cfg.sleep.regularity_window_days, cfg.sleep.regularity_min_nights
     out = []
     if nights.empty:
-        return pd.DataFrame(columns=["date", "sri", "onset_csd", "wake_csd", "reg_n", "reg_status"])
+        return pd.DataFrame(columns=["date", "sri", "onset_csd", "wake_csd", "reg_n", "reg_status",
+                                     "sri_pairs", "sri_reason"])
     # pandas stores dates as datetime64[s]; day arithmetic below needs [D] numpy values.
     all_days = nights["date"].to_numpy().astype("datetime64[D]")
     excl = _excluded_after_tz_change(nights, cfg.sleep.tz_change_exclude_nights).to_numpy()
@@ -151,7 +152,8 @@ def regularity(nights: pd.DataFrame, grid: np.ndarray, grid_day0: np.datetime64,
         lo = d - np.timedelta64(win - 1, "D")
         sel = usable[(dates >= lo) & (dates <= d)]
         n = len(sel)
-        row = dict(date=d, reg_n=n, sri=np.nan, onset_csd=np.nan, wake_csd=np.nan)
+        row = dict(date=d, reg_n=n, sri=np.nan, onset_csd=np.nan, wake_csd=np.nan, sri_pairs=0,
+                   sri_reason=f"only {n} usable nights in the {win}-day window (need {min_n})")
         if n < min_n:
             row["reg_status"] = "insufficient_data"
             out.append(row)
@@ -171,8 +173,13 @@ def regularity(nights: pd.DataFrame, grid: np.ndarray, grid_day0: np.datetime64,
             pairs += 1
             known += ok.sum()
             agree += (a[ok] == b[ok]).sum()
+        row["sri_pairs"] = pairs
         if pairs >= min_n:
             row["sri"] = 200.0 * agree / known - 100.0
+            row["sri_reason"] = None
+        else:
+            row["sri_reason"] = (f"only {pairs} day pairs with >= {cfg.sleep.sri_min_pair_coverage:.0%} of minutes "
+                                 f"known on both days (need {min_n}): band off for long stretches")
         row["reg_status"] = "ok"
         out.append(row)
     return pd.DataFrame(out)

@@ -113,8 +113,7 @@ def to_long(wide: pd.DataFrame) -> pd.DataFrame:
         for m in STAGE_METRICS:
             add(f"sleep.{m}", getattr(r, m), "ok" if r.stages_available else "not_available",
                 None if r.stages_available else "device produced no REM staging for this night")
-        add("sleep.sri_7d", r.sri, "ok" if not pd.isna(r.sri) else "insufficient_data",
-            None if not pd.isna(r.sri) else "fewer than the required valid day pairs")
+        add("sleep.sri_7d", r.sri, "ok" if not pd.isna(r.sri) else "insufficient_data", r.sri_reason)
         for m in ("onset_csd", "wake_csd"):
             add(f"sleep.{m}_7d", getattr(r, m), r.reg_status, None if r.reg_status == "ok" else "too few nights in window")
         add("phys.hr_coverage", r.hr_coverage, "ok")

@@ -183,8 +183,19 @@ def cmd_sanity(cfg: Config, args) -> int:
         print(f"our RHR − band's daily 'resting HR': mean {r.mean():+.1f} bpm "
               "(expected < 0: ours is the sleeping nadir)")
     print("Compare a few nights with the sleep screen in Mi Fitness, too.")
+    _sanity_regularity(wide.tail(14))
     _sanity_strain(wide, workouts)
     return 0
+
+
+def _sanity_regularity(w: pd.DataFrame) -> None:
+    print()
+    print("=== Regularity / wear, last 14 days ===")
+    print(f"{'date':<11} {'worn 08-22':>10} {'nights in 7d':>12} {'SRI pairs':>9} {'SRI':>5}  why missing")
+    for r in w.itertuples(index=False):
+        print(f"{pd.Timestamp(r.date):%Y-%m-%d} {_num(r.day_wear * 100 if not pd.isna(r.day_wear) else np.nan):>9}% "
+              f"{_num(getattr(r, 'reg_n', np.nan)):>12} {_num(getattr(r, 'sri_pairs', np.nan)):>9} "
+              f"{_num(getattr(r, 'sri', np.nan)):>5}  {getattr(r, 'sri_reason', '') or ''}")
 
 
 ZONE_MID = np.array([0.55, 0.65, 0.75, 0.85, 0.95])
