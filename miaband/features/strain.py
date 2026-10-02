@@ -15,7 +15,7 @@ Secondary: Banister TRIMP over all daytime HR (>= 30 % HR reserve) on days with 
 cadence, used to hint at sessions not started on the band. Not an input to anything.
 
 Strain (0-21) = 21 * (1 - exp(-load / tau)): a readability transform, not physiology and not
-WHOOP's strain. tau = "auto" puts the median workout day at 12/21.
+WHOOP's strain. tau = "auto" puts the median workout day of the most recent 365 days at 12/21.
 
 ACWR: EWMA (Williams et al. 2017), acute 7 d / chronic 28 d, lambda = 2/(N+1), uncoupled. A
 missing day leaves both averages unchanged (no imputation) and is counted; too many missing
@@ -221,7 +221,9 @@ def ewma_acwr(days: np.ndarray, load: np.ndarray, cfg: Config) -> pd.DataFrame:
 def resolve_tau(daily_load: pd.Series, cfg: Config) -> float:
     if cfg.strain.tau != "auto":
         return float(cfg.strain.tau)
-    pos = daily_load[daily_load > 0].dropna()
+    # calibrate on the most recent year: training habits change a lot over a decade
+    pos = daily_load.iloc[-365:]
+    pos = pos[pos > 0].dropna()
     if pos.empty:
         return 150.0
     # median workout day -> strain 12:  1 - exp(-m / tau) = 12/21

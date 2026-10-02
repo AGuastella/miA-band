@@ -333,7 +333,7 @@ devices.
 - HRrest for Banister = the trailing 28-day nightly-RHR baseline.
 - HRmax per date = max(220 − age at that date, median of the 3 highest workout maxima in the last
   24 months, ignoring > 220 − age + 15).
-- τ = "auto": the median workout day maps to strain 12/21.
+- τ = "auto": the median workout day of the most recent 365 days maps to strain 12/21.
 
 ### 6.3 Daily strain scale
 
