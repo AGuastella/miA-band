@@ -86,6 +86,32 @@ def compute_daily(tables: dict[str, pd.DataFrame], cfg: Config) -> tuple[pd.Data
     return wide, workouts
 
 
+def detector_recall(tables: dict[str, pd.DataFrame], cfg: Config, since: str | None = None) -> dict:
+    """How many recorded workouts with dense HR would the unrecorded-session detector have found
+    (>= 50 % overlap) if they had not been recorded? An honesty check on 'detected' loads."""
+    from .features.strain import detect_sessions, hrmax_by_date, sustained_peaks, workout_loads
+    ctx = _context(tables, cfg)
+    w, hr = ctx["workouts"], ctx["hr"]
+    if since:
+        w = w[w["start_ts"] >= pd.Timestamp(since, tz="UTC").timestamp()]
+    if w.empty or hr.empty:
+        return {"n": 0}
+    days = np.arange(np.datetime64(pd.to_datetime(w["start_ts"].min(), unit="s"), "D"),
+                     np.datetime64(pd.to_datetime(w["start_ts"].max(), unit="s"), "D") + 2, dtype="datetime64[D]")
+    hrmax = hrmax_by_date(days, w.assign(max_hr=sustained_peaks(w, hr, cfg)), cfg)
+    hrmax["date"] = pd.to_datetime(hrmax["date"])
+    loads = workout_loads(w, hr, hrmax, ctx["timeline"], cfg)
+    dense = loads[loads["method"] == "hr_ours"]
+    i, j = np.searchsorted(hr["ts"].to_numpy(), [dense["start_ts"].min() - 86400, dense["end_ts"].max() + 86400]) \
+        if not dense.empty else (0, 0)
+    det = detect_sessions(hr.iloc[i:j], w.iloc[:0], hrmax, ctx["timeline"], cfg, exclude_recorded=False)
+    found = 0
+    for r in dense.itertuples(index=False):
+        ov = (np.minimum(det["end_ts"], r.end_ts) - np.maximum(det["start_ts"], r.start_ts)).clip(lower=0).sum()
+        found += ov >= 0.5 * (r.end_ts - r.start_ts)
+    return {"n": len(dense), "found": int(found)}
+
+
 def to_long(wide: pd.DataFrame) -> pd.DataFrame:
     """Long daily_metrics rows: (date, metric, value, status, reason). Every gap is explicit."""
     rows = []

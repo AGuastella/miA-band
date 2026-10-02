@@ -1,4 +1,5 @@
 """Strain: Edwards per workout (ours vs band zones), daily load rules, HRmax, ACWR."""
+import dataclasses
 import datetime as dt
 
 import numpy as np
@@ -14,11 +15,11 @@ D = dt.date
 CFG = Config()
 
 
-def daily(sc: Scenario, mutate=None):
+def daily(sc: Scenario, mutate=None, cfg: Config = CFG):
     batch, _ = generate(sc)
     if mutate:
         mutate(batch.tables)
-    w, wl = compute_daily(batch.tables, CFG)
+    w, wl = compute_daily(batch.tables, cfg)
     return w.set_index(w["date"].dt.date), wl
 
 
@@ -98,7 +99,9 @@ def test_unrecorded_session_hint_from_banister():
         hr = t["hr_samples"]
         lo = int(pd.Timestamp("2026-03-04 17:00", tz="Europe/Madrid").timestamp())
         hr.loc[hr["ts"].between(lo, lo + 3600), "bpm"] = 165
-    w, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=8), hard_hour)
+    # with session detection off, only the Banister hint is left to point at the session
+    no_detect = dataclasses.replace(CFG, strain=dataclasses.replace(CFG.strain, detect_sessions=False))
+    w, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=8), hard_hour, no_detect)
     assert w.loc[D(2026, 3, 4)].unrecorded_hint and w.loc[D(2026, 3, 4)].load == 0
     assert not w.loc[D(2026, 3, 5)].unrecorded_hint and w.loc[D(2026, 3, 5)].banister == 0
 
@@ -120,3 +123,23 @@ def test_rest_day_zero_is_marked_unverified_when_hr_is_sparse():
     assert r.load == 0 and r.load_status == "ok" and "too sparse" in r.load_reason
     dense, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=6))
     assert pd.isna(dense.loc[D(2026, 3, 3)].load_reason)
+
+
+def test_unrecorded_session_is_detected_once_and_walks_are_not():
+    def edits(t):
+        hr = t["hr_samples"]
+        lo = int(pd.Timestamp("2026-03-05 17:00", tz="Europe/Madrid").timestamp())
+        hr.loc[hr["ts"].between(lo, lo + 3600 - 1), "bpm"] = 165          # unrecorded hour, zone 4
+        lo = int(pd.Timestamp("2026-03-06 10:00", tz="Europe/Madrid").timestamp())
+        hr.loc[hr["ts"].between(lo, lo + 3 * 3600), "bpm"] = 105          # long walk, 55 % HRmax
+    w, wl = daily(Scenario(first_wake=D(2026, 3, 1), nights=8,
+                           workouts={D(2026, 3, 3): (dt.time(18), 90, 150)}), edits)
+    assert w.loc[D(2026, 3, 5)].load == 240 and w.loc[D(2026, 3, 5)].load_method == "detected"
+    assert w.loc[D(2026, 3, 3)].load == 270 and w.loc[D(2026, 3, 3)].n_workouts == 1   # not double counted
+    assert w.loc[D(2026, 3, 6)].load == 0
+
+
+def test_detector_recall_on_recorded_workouts():
+    from miaband.pipeline import detector_recall
+    b, _ = generate(Scenario(first_wake=D(2026, 3, 1), nights=10, workouts=every_other_day(D(2026, 3, 1), 10)))
+    assert detector_recall(b.tables, CFG) == {"n": 5, "found": 5}

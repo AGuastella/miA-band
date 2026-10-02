@@ -62,6 +62,10 @@ class Strain:
     hrr_floor: float = 0.30                # Banister (secondary) counts samples at >= 30 % HRR
     banister_max_cadence_s: float = 120.0
     unrecorded_hint_banister: float = 40.0
+    detect_sessions: bool = True           # find sessions not started on the band (dense HR only)
+    detect_threshold: float = 0.60         # 5-sample median HR >= this fraction of HRmax ...
+    detect_min_minutes: float = 20.0       # ... sustained at least this long
+    detect_merge_gap_min: float = 10.0     # active stretches closer than this are one session
     acwr_acute_days: int = 7
     acwr_chronic_days: int = 28
     acwr_max_missing_7: int = 1

@@ -335,6 +335,13 @@ devices.
   24 months, ignoring > 220 − age + 15).
 - τ = "auto": the median workout day of the most recent 365 days maps to strain 12/21.
 
+**Unrecorded sessions (added after the July check).** Many recent sessions were never started on
+the band. In dense background HR, a stretch where the 5-sample median HR is ≥ 60 % HRmax for
+≥ 20 min, outside recorded workouts (±5 min), counts as a *detected* session. Stretches less
+than 10 min apart merge. A detected session gets the same Edwards load. Its recall is checked
+in `sanity` by running the detector on recorded workouts as if they had not been recorded.
+Detected loads are a floor: easy play below 60 % HRmax is missed.
+
 ### 6.3 Daily strain scale
 
 - Strain(D) = 21 · (1 − e^{−TRIMP(D)/τ}), with τ = 120 by default (config).

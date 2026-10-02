@@ -11,6 +11,10 @@ Daily load = sum of that local day's workouts. A day without workouts is a real 
 band was worn for most of the day (`day_wear_window`), else unknown. When HR is too sparse for
 the Banister check, that 0 carries a reason ("unverified") and is shown as 0*.
 
+Sessions not started on the band are detected in dense background HR (sustained HR >= 60 %
+HRmax for >= 20 min, outside recorded workouts) and get the same Edwards load, method
+'detected'. `miaband sanity` reports the detector's recall on recorded workouts.
+
 Secondary: Banister TRIMP over all daytime HR (>= 30 % HR reserve) on days with <= 2-min
 cadence, used to hint at sessions not started on the band. Not an input to anything.
 
@@ -140,6 +144,58 @@ def workout_loads(workouts: pd.DataFrame, hr: pd.DataFrame, hrmax: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
+def detect_sessions(hr: pd.DataFrame, workouts: pd.DataFrame, hrmax: pd.DataFrame,
+                    timeline: pd.DataFrame, cfg: Config, exclude_recorded: bool = True) -> pd.DataFrame:
+    """Training sessions not started on the band, found in dense (<= 2-min) background HR.
+
+    A sample is 'active' when the 5-sample rolling median HR is >= detect_threshold x HRmax.
+    Active runs closer than detect_merge_gap_min are merged; runs of >= detect_min_minutes
+    are sessions. Recorded workouts (+-5 min) are masked out so nothing is counted twice.
+    The session's load is the same Edwards TRIMP as for recorded workouts.
+    """
+    s = cfg.strain
+    cols = ["start_ts", "end_ts", "sport", "date", "load", "method", "load_ours", "load_device",
+            "hr_max", "cadence_s", "coverage", "avg_hr"]
+    if hr.empty or not s.detect_sessions:
+        return pd.DataFrame(columns=cols)
+    ts = hr["ts"].to_numpy(dtype="int64")
+    bpm = hr["bpm"].to_numpy(dtype=float)
+    off = local_offsets(ts, timeline, cfg.tz)
+    dates = local_date(ts, off)
+    hm = hrmax.set_index("date")["hr_max"]
+    frac = bpm / hm.reindex(pd.DatetimeIndex(dates)).to_numpy()
+    gap = np.diff(ts, prepend=ts[0] - 60)
+    seg = np.cumsum(gap > s.workout_max_cadence_s)            # break smoothing at sparse gaps
+    smooth = (pd.Series(frac).groupby(seg).transform(
+        lambda x: x.rolling(5, center=True, min_periods=3).median())).to_numpy()
+    active = (smooth >= s.detect_threshold) & (gap <= s.workout_max_cadence_s)
+    if exclude_recorded and not workouts.empty:
+        for a, b in zip(workouts["start_ts"].to_numpy(), workouts["end_ts"].to_numpy()):
+            i, j = np.searchsorted(ts, [a - 300, b + 300])
+            active[i:j] = False
+    idx = np.flatnonzero(active)
+    if idx.size == 0:
+        return pd.DataFrame(columns=cols)
+    runs, start, prev = [], idx[0], idx[0]
+    for k in idx[1:]:
+        if ts[k] - ts[prev] > s.detect_merge_gap_min * 60:
+            runs.append((start, prev)); start = k
+        prev = k
+    runs.append((start, prev))
+    rows = []
+    for a, b in runs:
+        if ts[b] - ts[a] < s.detect_min_minutes * 60:
+            continue
+        t, h = ts[a:b + 1], bpm[a:b + 1]
+        cadence = float(np.median(np.diff(t)))
+        hmax = float(hm.get(pd.Timestamp(dates[a]), np.nan))
+        load = edwards(zone_minutes(t, h, hmax, 2 * cadence, int(t[-1] + cadence)))
+        rows.append(dict(start_ts=int(t[0]), end_ts=int(t[-1] + cadence), sport="detected", date=dates[a],
+                         load=load, method="detected", load_ours=load, load_device=np.nan, hr_max=hmax,
+                         cadence_s=cadence, coverage=1.0, avg_hr=float(h.mean())))
+    return pd.DataFrame(rows, columns=cols)
+
+
 # ---------------------------------------------------------------------------------------
 def day_wear(days: np.ndarray, worn: pd.DataFrame, timeline: pd.DataFrame, cfg: Config) -> np.ndarray:
     """Share of the local `day_wear_window` hours covered by wear, per day."""
@@ -242,6 +298,9 @@ def daily_strain(days: np.ndarray, workouts: pd.DataFrame, hr: pd.DataFrame, wor
     hrmax = hrmax_by_date(days, peaks, cfg)
     hrmax["date"] = pd.to_datetime(hrmax["date"])
     wl = workout_loads(workouts, hr, hrmax, timeline, cfg)
+    detected = detect_sessions(hr, workouts, hrmax, timeline, cfg)
+    if not detected.empty:
+        wl = pd.concat([wl, detected], ignore_index=True).sort_values("start_ts", ignore_index=True)
     wear = day_wear(days, worn, timeline, cfg)
     idx = pd.DatetimeIndex(days)
     by_day = wl.groupby(pd.to_datetime(wl["date"]))if not wl.empty else None

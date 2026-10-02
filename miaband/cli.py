@@ -225,6 +225,10 @@ def cmd_sanity(cfg: Config, args) -> int:
     _sanity_missing_nights(wide.tail(14), ses, cfg)
     _sanity_regularity(wide.tail(14))
     _sanity_strain(wide, workouts)
+    rc = pipeline.detector_recall(tables, cfg, since="2025-01-01")
+    if rc.get("n"):
+        print(f"detector check: it finds {rc['found']}/{rc['n']} ({rc['found'] / rc['n']:.0%}) of your recorded "
+              "workouts since 2025 when pretending they were not recorded (low recall = detected loads are a floor)")
     return 0
 
 
@@ -284,10 +288,12 @@ def _sanity_strain(wide: pd.DataFrame, wl: pd.DataFrame) -> None:
         print(f"band zones: implied HRmax = avg HR / zone midpoint = {np.median(implied):.0f} bpm "
               f"(CV {cv:.1%}, n={ok.sum()}) -> " + ("consistent with %HRmax zones" if cv < 0.05 else
                                                     "spread is large: zones may not be plain %HRmax"))
+    det = wl[wl["method"] == "detected"]
+    print(f"detected (not started on the band) sessions: {len(det)} in total, {len(det[pd.to_datetime(det['date']) >= pd.Timestamp('2025-01-01')])} since 2025")
     last = wide.dropna(subset=["hr_max"]).iloc[-1]
     print(f"HRmax in use today: {last['hr_max']:.0f} bpm ({last['hr_max_basis']}); strain tau = {last['tau']:.0f}")
     print("\nlast 10 workouts:")
-    print(f"{'date':<11} {'sport':<18} {'min':>4} {'avgHR':>5} {'ours':>6} {'band':>6}  method")
+    print(f"{'date':<11} {'sport':<18} {'min':>4} {'avgHR':>5} {'ours':>6} {'band':>6}  method  (detected = not started on the band)")
     for r in wl.tail(10).itertuples(index=False):
         print(f"{pd.Timestamp(r.date):%Y-%m-%d} {str(r.sport)[:18]:<18} {(r.end_ts - r.start_ts) / 60:>4.0f} "
               f"{_num(r.avg_hr):>5} {_num(r.load_ours):>6} {_num(r.load_device):>6}  {r.method}")
