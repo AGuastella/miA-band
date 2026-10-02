@@ -121,6 +121,8 @@ def cmd_show(cfg: Config, args) -> int:
                           f"{_num(r.get('sleep.sri_7d')):>5} {_num(r.get('phys.rhr')):>4} {zs:>6}")
         if r.get("strain.load:status") == "ok":
             load, strain = _num(r.get("strain.load")), _num(r.get("strain.strain"), "{:.1f}")
+            if isinstance(r.get("strain.load:reason"), str):
+                load += "*"
         else:
             load, strain = "?", "?"
             notes.append(f"load: {r.get('strain.load:reason')}")
@@ -137,6 +139,7 @@ def cmd_show(cfg: Config, args) -> int:
           + ", sleep " + _hm(last.get("tst.base28")))
     print("SME = sleep maintenance efficiency (TST / sleep period); the band has no real time-in-bed.")
     print("load = Edwards TRIMP of the day's workouts; strain = 21*(1-exp(-load/tau)), a readability scale;")
+    print("0* = no workout recorded, but HR too sparse to rule out an unrecorded session.")
     print("ACWR = EWMA 7d/28d load ratio: descriptive only (weak evidence as an injury predictor).")
     return 0
 
@@ -162,14 +165,15 @@ def cmd_sanity(cfg: Config, args) -> int:
         rows.append(dict(
             date=f"{n.date:%Y-%m-%d}", tst=n.tst_min, dev_tst=members["dev_duration_min"].sum(min_count=1),
             rhr=n.rhr, dev_sleep_min_hr=members["dev_min_hr"].min(), dev_rhr=dev_rhr.get(f"{n.date:%Y-%m-%d}"),
-            onset=_hhmm(n.onset_clock), wake=_hhmm(n.wake_clock)))
+            onset=_hhmm(n.onset_clock), wake=_hhmm(n.wake_clock),
+            utc=f"UTC{n.offset_end / 60:+g}" + ("*" if n.tz_change else "")))
     df = pd.DataFrame(rows)
     print(f"{'night':<11} {'TST ours':>9} {'band':>6} {'Δmin':>5}   {'bed-wake':<11} "
-          f"{'RHR ours':>8} {'band sleep min':>14} {'band RHR':>8}")
+          f"{'RHR ours':>8} {'band sleep min':>14} {'band RHR':>8} {'offset':>8}")
     for r in df.itertuples(index=False):
         diff = r.tst - r.dev_tst if not pd.isna(r.dev_tst) else np.nan
         print(f"{r.date:<11} {_hm(r.tst):>9} {_hm(r.dev_tst):>6} {_num(diff, '{:+.0f}'):>5}   {r.onset}-{r.wake} "
-              f"{_num(r.rhr, '{:.1f}'):>8} {_num(r.dev_sleep_min_hr):>14} {_num(r.dev_rhr):>8}")
+              f"{_num(r.rhr, '{:.1f}'):>8} {_num(r.dev_sleep_min_hr):>14} {_num(r.dev_rhr):>8} {r.utc:>8}")
     d = (df["tst"] - df["dev_tst"]).dropna()
     print()
     if len(d):
@@ -182,10 +186,27 @@ def cmd_sanity(cfg: Config, args) -> int:
     if len(r):
         print(f"our RHR − band's daily 'resting HR': mean {r.mean():+.1f} bpm "
               "(expected < 0: ours is the sleeping nadir)")
+    print("offset * = time-zone change vs the previous night (excluded from regularity for 2 nights)")
     print("Compare a few nights with the sleep screen in Mi Fitness, too.")
+    _sanity_missing_nights(wide.tail(14), ses, cfg)
     _sanity_regularity(wide.tail(14))
     _sanity_strain(wide, workouts)
     return 0
+
+
+def _sanity_missing_nights(w: pd.DataFrame, ses: pd.DataFrame, cfg: Config) -> None:
+    missing = w[w["episode"].isna()]
+    if missing.empty:
+        return
+    print()
+    print("=== Days without a main sleep (>= 3 h): sleep records ending that day ===")
+    end_local = pd.to_datetime(ses["end_ts"], unit="s", utc=True).dt.tz_convert(cfg.tz)
+    start_local = pd.to_datetime(ses["start_ts"], unit="s", utc=True).dt.tz_convert(cfg.tz)
+    for d in missing["date"]:
+        m = end_local.dt.date == pd.Timestamp(d).date()
+        recs = ", ".join(f"{a:%H:%M}-{b:%H:%M} ({(b - a).total_seconds() / 60:.0f} min{', nap' if n == 1 else ''})"
+                         for a, b, n in zip(start_local[m], end_local[m], ses.loc[m, "is_nap"]))
+        print(f"{pd.Timestamp(d):%Y-%m-%d}: {recs or 'no sleep record at all'}")
 
 
 def _sanity_regularity(w: pd.DataFrame) -> None:
@@ -195,7 +216,7 @@ def _sanity_regularity(w: pd.DataFrame) -> None:
     for r in w.itertuples(index=False):
         print(f"{pd.Timestamp(r.date):%Y-%m-%d} {_num(r.day_wear * 100 if not pd.isna(r.day_wear) else np.nan):>9}% "
               f"{_num(getattr(r, 'reg_n', np.nan)):>12} {_num(getattr(r, 'sri_pairs', np.nan)):>9} "
-              f"{_num(getattr(r, 'sri', np.nan)):>5}  {getattr(r, 'sri_reason', '') or ''}")
+              f"{_num(getattr(r, 'sri', np.nan)):>5}  {r.sri_reason if isinstance(getattr(r, 'sri_reason', None), str) else ''}")
 
 
 ZONE_MID = np.array([0.55, 0.65, 0.75, 0.85, 0.95])

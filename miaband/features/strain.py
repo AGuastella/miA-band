@@ -8,7 +8,8 @@ durations are used (method 'device_zones', documented as such); otherwise the wo
 unknown and its day is 'insufficient_data'. Nothing is approximated from averages.
 
 Daily load = sum of that local day's workouts. A day without workouts is a real 0 only if the
-band was worn for most of the day (`day_wear_window`), else unknown.
+band was worn for most of the day (`day_wear_window`), else unknown. When HR is too sparse for
+the Banister check, that 0 carries a reason ("unverified") and is shown as 0*.
 
 Secondary: Banister TRIMP over all daytime HR (>= 30 % HR reserve) on days with <= 2-min
 cadence, used to hint at sessions not started on the band. Not an input to anything.
@@ -44,8 +45,8 @@ def _day_index(days) -> np.ndarray:
 # ---------------------------------------------------------------------------------------
 def hrmax_by_date(days: np.ndarray, workouts: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     """HRmax per date: config value, else max(220 - age at that date, observed), where observed
-    is the median of the 3 highest workout maxima in the lookback window, ignoring values above
-    220 - age + margin (optical artifacts)."""
+    is the median of the 3 highest *sustained* workout peaks (column `max_hr`, see
+    sustained_peaks) in the lookback window, ignoring values above 220 - age + margin."""
     s = cfg.strain
     days = _day_index(days)
     age = np.array([cfg.person.age_on(d.astype(object)) for d in days])
@@ -65,6 +66,23 @@ def hrmax_by_date(days: np.ndarray, workouts: pd.DataFrame, cfg: Config) -> pd.D
         else:
             hr.append(pred); basis.append("age")
     return pd.DataFrame({"date": days, "hr_max": hr, "hr_max_basis": basis})
+
+
+def sustained_peaks(workouts: pd.DataFrame, hr: pd.DataFrame, cfg: Config) -> pd.Series:
+    """Per workout: highest 3-sample rolling median of our HR inside the workout, only where HR
+    is dense (<= workout_max_cadence_s). The band's own `max_hr` is a single-sample peak and is
+    not used: optical spikes during arm-heavy play would inflate HRmax."""
+    ts_all = hr["ts"].to_numpy(dtype="int64")
+    bpm_all = hr["bpm"].to_numpy(dtype=float)
+    out = []
+    for r in workouts.itertuples(index=False):
+        i, j = np.searchsorted(ts_all, [r.start_ts, r.end_ts])
+        ts, bpm = ts_all[i:j], bpm_all[i:j]
+        if len(ts) >= 5 and np.median(np.diff(ts)) <= cfg.strain.workout_max_cadence_s:
+            out.append(float(pd.Series(bpm).rolling(3).median().max()))
+        else:
+            out.append(np.nan)
+    return pd.Series(out, index=workouts.index, dtype=float)
 
 
 def zone_minutes(ts: np.ndarray, bpm: np.ndarray, hr_max: float, max_dt: float, end_ts: int) -> np.ndarray:
@@ -218,7 +236,8 @@ def daily_strain(days: np.ndarray, workouts: pd.DataFrame, hr: pd.DataFrame, wor
                  timeline: pd.DataFrame, hr_rest: pd.Series, cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-day load/strain/ACWR frame and the per-workout detail frame."""
     days = _day_index(days)
-    hrmax = hrmax_by_date(days, workouts, cfg)
+    peaks = workouts.assign(max_hr=sustained_peaks(workouts, hr, cfg)) if not workouts.empty else workouts
+    hrmax = hrmax_by_date(days, peaks, cfg)
     hrmax["date"] = pd.to_datetime(hrmax["date"])
     wl = workout_loads(workouts, hr, hrmax, timeline, cfg)
     wear = day_wear(days, worn, timeline, cfg)
@@ -244,8 +263,10 @@ def daily_strain(days: np.ndarray, workouts: pd.DataFrame, hr: pd.DataFrame, wor
     status[bad] = "insufficient_data"
     reason[bad] = "a workout has neither dense HR nor band zone data"
 
-    tau = resolve_tau(pd.Series(load), cfg)
     banister = banister_daily(days, hr, hrmax, hr_rest, timeline, cfg).to_numpy()
+    unverified = rest_day & worn_enough & np.isnan(banister)
+    reason[unverified] = "no workout recorded; HR too sparse to rule out an unrecorded session"
+    tau = resolve_tau(pd.Series(load), cfg)
     acwr = ewma_acwr(days, load, cfg)
     out = pd.DataFrame({
         "date": days, "load": load, "strain": strain_score(load, tau), "load_status": status,

@@ -101,3 +101,22 @@ def test_unrecorded_session_hint_from_banister():
     w, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=8), hard_hour)
     assert w.loc[D(2026, 3, 4)].unrecorded_hint and w.loc[D(2026, 3, 4)].load == 0
     assert not w.loc[D(2026, 3, 5)].unrecorded_hint and w.loc[D(2026, 3, 5)].banister == 0
+
+
+def test_hrmax_ignores_single_sample_spikes():
+    # three hard sessions at 200 bpm sustained would raise HRmax; one-sample spikes must not
+    def spikes(t):
+        hr = t["hr_samples"]
+        for w in t["workouts"].itertuples():
+            hr.loc[hr["ts"].between(w.start_ts + 600, w.start_ts + 600), "bpm"] = 215
+    w, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=10, workouts=every_other_day(D(2026, 3, 1), 10, bpm=170)),
+                 spikes)
+    assert (w["hr_max_basis"] == "age").all()
+
+
+def test_rest_day_zero_is_marked_unverified_when_hr_is_sparse():
+    w, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=6, hr_cadence_s=600))
+    r = w.loc[D(2026, 3, 3)]
+    assert r.load == 0 and r.load_status == "ok" and "too sparse" in r.load_reason
+    dense, _ = daily(Scenario(first_wake=D(2026, 3, 1), nights=6))
+    assert pd.isna(dense.loc[D(2026, 3, 3)].load_reason)
