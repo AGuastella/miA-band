@@ -1,0 +1,17 @@
+# Personal health data: never commit
+Gadgetbridge
+Gadgetbridge-*
+*.db
+*.sqlite
+*.duckdb
+data/
+inspect_out/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+inspect_mifitness_out/
+*.zip
+config.toml
+*.egg-info/

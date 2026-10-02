@@ -1,0 +1,75 @@
+# Copy to config.toml (git-ignored) and adjust.
+
+# Fallback zone, used only when no sleep/workout record gives the offset in force
+# for that day (records carry their own offset; see docs/SPEC.md §9.2).
+timezone = "Europe/Madrid"
+store = "data/miaband.sqlite"
+
+[person]
+age = 29
+age_as_of = "2026-10-01"
+sex = "male"
+# hr_max = 192         # unset = auto (step 3)
+resting_hr = 65        # prior until the nightly RHR baseline exists
+
+[sources]
+priority = ["gadgetbridge", "mifitness", "synthetic"]
+
+[sufficiency]
+night_hr_coverage_min = 0.80
+main_sleep_min_hours = 3.0
+episode_merge_gap_min = 60
+wear_gap_min_floor = 10       # non-wear when consecutive HR samples are > max(3*cadence, this) min apart
+
+[sleep]
+regularity_window_days = 7
+regularity_min_nights = 5
+sri_min_pair_coverage = 0.5   # share of a day pair's minutes with known sleep/wake state
+tz_change_exclude_nights = 2
+
+[physiology]
+rhr_skip_onset_min = 30
+rhr_window_min = 10           # widened to 3*cadence at sparse sampling
+rhr_window_min_fill = 0.70
+
+[baselines]
+long_days = 28
+long_min_n = 14
+short_days = 7
+short_min_n = 4
+flag_sd = 1.5
+
+[baselines.spread_floor]
+rhr = 1.0
+tst_min = 20.0
+sleep_hr_mean = 1.0
+
+[strain]
+# hr_max is under [person]; tau = "auto" maps your median workout day to strain 12/21
+tau = "auto"
+day_wear_min = 0.70
+
+[recovery]
+# no HRV from this source: resting HR + sleep. Judgment weights, not literature values.
+weights = { rhr = 0.5, sleep = 0.5 }
+required = ["rhr", "sleep"]
+bands = { low = 33, high = 67 }
+
+# Readiness: first matching rule wins. Fields: recovery.status, recovery.score, recovery.band,
+# rhr.z, rhr.flag, sleep.z, sleep.flag, sleep.tst_min, acwr.value, acwr.status, load.yesterday.
+# A term on a missing value is false. Uncomment to replace the built-in rules.
+# [[readiness.rules]]
+# when = [{ field = "recovery.status", op = "!=", value = "ok" }]
+# say = "Insufficient data for a recommendation"
+# [[readiness.rules]]
+# when = [{ field = "rhr.z", op = ">=", value = 2.0 }, { field = "sleep.flag", op = "==", value = true }]
+# say = "Resting HR well above baseline after a short night: possible illness or high fatigue, rest"
+# [[readiness.rules]]
+# when = [{ field = "recovery.score", op = "<", value = 34 }]
+# say = "Recovery day recommended"
+# [[readiness.rules]]
+# when = [{ field = "acwr.value", op = ">", value = 1.5 }]
+# say = "Load spike vs your last 4 weeks: keep intensity down"
+# [[readiness.rules]]
+# when = []
+# say = "Train as planned"
