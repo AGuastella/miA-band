@@ -9,9 +9,10 @@ Key -> canonical mapping:
   single_heart_rate                  -> hr_samples (spot)
   watch_night_sleep, sleep           -> sleep_sessions + sleep_segments
   watch_daytime_sleep                -> sleep_sessions (is_nap=1) + segments
+  steps (per active minute)          -> step_samples
   resting_heart_rate                 -> device_daily (metric 'rhr'), reference only
   sport_record rows                  -> workouts (HR-zone seconds for Edwards TRIMP)
-Everything else (steps, calories, stress, PAI, vitality, ...) is ignored for now.
+Everything else (calories, stress, PAI, vitality, ...) is ignored for now.
 
 Data-quality rules applied here, each reported in batch.notes:
   * rows before 2015-01-01 or in the future are dropped (unset device clock writes 2000-12-31);
@@ -116,6 +117,7 @@ def _sleep_record(key: str, sid: str, d: dict, stats: Counter, bad_codes: Counte
 
 def read_fitness_data(path: Path, now_ts: int, notes: list[str]) -> dict[str, pd.DataFrame]:
     hr_ts, hr_bpm, hr_dev, hr_ctx = [], [], [], []
+    st_ts, st_n, st_dev = [], [], []
     sessions, segments, daily = [], [], []
     stats, bad_codes = Counter(), Counter()
     verify = defaultdict(lambda: [0, 0])
@@ -145,6 +147,11 @@ def read_fitness_data(path: Path, now_ts: int, notes: list[str]) -> dict[str, pd
                 if session:
                     sessions.append(session)
                     segments.extend(segs)
+            elif key == "steps":
+                d = json.loads(row[i_val])
+                ts, n = d.get("time"), d.get("steps")
+                if ts and n and MIN_TS <= ts <= now_ts:      # rows exist per active minute; 0 adds nothing
+                    st_ts.append(ts); st_n.append(n); st_dev.append(row[i_sid])
             elif key == "resting_heart_rate":
                 d = json.loads(row[i_val])
                 if d.get("date_time") and d.get("bpm"):
@@ -177,7 +184,10 @@ def read_fitness_data(path: Path, now_ts: int, notes: list[str]) -> dict[str, pd
     seg = seg.drop(columns="_send").drop_duplicates(["device_id", "start_ts", "session_start_ts"])
     dd = pd.DataFrame(daily, columns=list(TABLES["device_daily"]["columns"]))
     dd = dd.drop_duplicates(["device_id", "date", "metric"], keep="last")
-    return {"hr_samples": hr, "sleep_sessions": sess, "sleep_segments": seg, "device_daily": dd}
+    steps = pd.DataFrame({"source": SOURCE, "device_id": st_dev, "ts": st_ts, "steps": st_n})
+    steps = steps.drop_duplicates(["device_id", "ts"], keep="last")
+    return {"hr_samples": hr, "step_samples": steps, "sleep_sessions": sess, "sleep_segments": seg,
+            "device_daily": dd}
 
 
 def read_sport_record(path: Path, now_ts: int, notes: list[str]) -> pd.DataFrame:
@@ -298,6 +308,9 @@ def write_export(batch: CanonicalBatch, folder: Path | str, prefix: str = "20261
         for r in batch.get("hr_samples").itertuples(index=False):
             key = "heart_rate" if r.context == "background" else "single_heart_rate"
             w.writerow(["1", r.device_id, key, int(r.ts), json.dumps({"time": int(r.ts), "bpm": int(r.bpm), "type": 0}), int(r.ts)])
+        for r in batch.get("step_samples").itertuples(index=False):
+            w.writerow(["1", r.device_id, "steps", int(r.ts),
+                        json.dumps({"time": int(r.ts), "steps": int(r.steps), "distance": 0, "calories": 0}), int(r.ts)])
         seg = batch.get("sleep_segments")
         for s in batch.get("sleep_sessions").itertuples(index=False):
             items = seg[(seg["device_id"] == s.device_id) & (seg["session_start_ts"] == s.start_ts)]

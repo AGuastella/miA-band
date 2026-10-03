@@ -13,6 +13,7 @@ from .features.baselines import trailing_baseline
 from .features.nights import build_episodes, episode_segments
 from .features.physiology import nightly_rhr
 from .features.sleep import nightly_sleep, regularity, sleep_wake_grid
+from .features.activity import daily_steps
 from .features.recovery import add_recovery_and_readiness
 from .features.strain import daily_strain
 from .features.timeutil import offset_timeline
@@ -80,6 +81,8 @@ def compute_daily(tables: dict[str, pd.DataFrame], cfg: Config) -> tuple[pd.Data
     rest = (nightly.set_index("date")["rhr_base_center"] if "rhr_base_center" in nightly
             else pd.Series(dtype=float)).reindex(pd.DatetimeIndex(days)).ffill().fillna(cfg.person.resting_hr)
     strain, workouts = daily_strain(days, w, ctx["hr"], ctx["worn"], ctx["timeline"], rest, cfg)
+    strain = strain.merge(daily_steps(days, tables.get("step_samples", empty("step_samples")),
+                                      strain["day_wear"].to_numpy(), ctx["timeline"], cfg), on="date")
     strain["date"] = pd.to_datetime(strain["date"])
     wide = strain.merge(nightly, on="date", how="left") if "episode" in nightly else strain.assign(episode=np.nan)
     wide = add_recovery_and_readiness(wide.sort_values("date").reset_index(drop=True), cfg)
@@ -129,6 +132,7 @@ def to_long(wide: pd.DataFrame) -> pd.DataFrame:
                 None if not pd.isna(r.banister) else "HR sampled less often than every 2 min")
             add("strain.unrecorded_hint", float(bool(r.unrecorded_hint)), "ok")
             add("strain.hr_max", r.hr_max, "ok", r.hr_max_basis)
+            add("activity.steps", r.steps, r.steps_status, r.steps_reason)
             add("acwr.ewma", r.acwr, r.acwr_status, r.acwr_reason)
             add("acwr.rolling", r.acwr_rolling, r.acwr_status, r.acwr_reason)
         if hasattr(r, "recovery_status"):
@@ -172,11 +176,12 @@ def to_long(wide: pd.DataFrame) -> pd.DataFrame:
 
 def load_tables(con: sqlite3.Connection) -> dict[str, pd.DataFrame]:
     return {name: store.read_table(con, name)
-            for name in ("hr_samples", "sleep_sessions", "sleep_segments", "workouts")}
+            for name in ("hr_samples", "step_samples", "sleep_sessions", "sleep_segments", "workouts")}
 
 
 def run(con: sqlite3.Connection, cfg: Config) -> pd.DataFrame:
-    wide, _ = compute_daily(load_tables(con), cfg)
+    wide, workouts = compute_daily(load_tables(con), cfg)
     if not wide.empty:
         store.write_daily(con, to_long(wide))
+        store.write_workouts(con, workouts)
     return wide

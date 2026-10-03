@@ -126,21 +126,25 @@ def workout_loads(workouts: pd.DataFrame, hr: pd.DataFrame, hrmax: pd.DataFrame,
         dur = r.end_ts - r.start_ts
         cadence = float(np.median(np.diff(ts))) if len(ts) > 2 else np.inf
         coverage = min(1.0, len(ts) * cadence / dur) if np.isfinite(cadence) and dur > 0 else 0.0
-        ours = np.nan
+        ours, zmin = np.nan, np.full(5, np.nan)
         if cadence <= s.workout_max_cadence_s and coverage >= s.workout_min_coverage and not np.isnan(hr_max):
-            ours = edwards(zone_minutes(ts, bpm, hr_max, 2 * cadence, r.end_ts))
+            zmin = zone_minutes(ts, bpm, hr_max, 2 * cadence, r.end_ts)
+            ours = edwards(zmin)
         zs = np.array([getattr(r, f"zone{z}_s") for z in range(1, 6)], dtype=float)
         device = edwards(zs / 60) if not np.isnan(zs).any() and zs.sum() > 0 else np.nan
         if not np.isnan(ours):
             load, method = ours, "hr_ours"
         elif not np.isnan(device):
-            load, method = device, "device_zones"
+            load, method, zmin = device, "device_zones", zs / 60
         else:
             load, method = np.nan, "low_resolution"
+        dense = cadence <= s.workout_max_cadence_s and len(ts) >= 5
+        peak = float(pd.Series(bpm).rolling(3).median().max()) if dense else r.max_hr
         rows.append(dict(start_ts=r.start_ts, end_ts=r.end_ts, sport=r.sport, date=r.date, load=load,
                          method=method, load_ours=ours, load_device=device, hr_max=hr_max,
-                         cadence_s=cadence, coverage=coverage, avg_hr=r.avg_hr,
-                         **{f"zone{z}_s": zs[z - 1] for z in range(1, 6)}))
+                         cadence_s=cadence, coverage=coverage, avg_hr=r.avg_hr, peak_hr=peak,
+                         **{f"zone{z}_s": zs[z - 1] for z in range(1, 6)},
+                         **{f"z{z}_min": zmin[z - 1] for z in range(1, 6)}))
     return pd.DataFrame(rows)
 
 
@@ -155,7 +159,7 @@ def detect_sessions(hr: pd.DataFrame, workouts: pd.DataFrame, hrmax: pd.DataFram
     """
     s = cfg.strain
     cols = ["start_ts", "end_ts", "sport", "date", "load", "method", "load_ours", "load_device",
-            "hr_max", "cadence_s", "coverage", "avg_hr"]
+            "hr_max", "cadence_s", "coverage", "avg_hr", "peak_hr"] + [f"z{z}_min" for z in range(1, 6)]
     if hr.empty or not s.detect_sessions:
         return pd.DataFrame(columns=cols)
     ts = hr["ts"].to_numpy(dtype="int64")
@@ -189,10 +193,13 @@ def detect_sessions(hr: pd.DataFrame, workouts: pd.DataFrame, hrmax: pd.DataFram
         t, h = ts[a:b + 1], bpm[a:b + 1]
         cadence = float(np.median(np.diff(t)))
         hmax = float(hm.get(pd.Timestamp(dates[a]), np.nan))
-        load = edwards(zone_minutes(t, h, hmax, 2 * cadence, int(t[-1] + cadence)))
+        zmin = zone_minutes(t, h, hmax, 2 * cadence, int(t[-1] + cadence))
+        load = edwards(zmin)
         rows.append(dict(start_ts=int(t[0]), end_ts=int(t[-1] + cadence), sport="detected", date=dates[a],
                          load=load, method="detected", load_ours=load, load_device=np.nan, hr_max=hmax,
-                         cadence_s=cadence, coverage=1.0, avg_hr=float(h.mean())))
+                         cadence_s=cadence, coverage=1.0, avg_hr=float(h.mean()),
+                         peak_hr=float(pd.Series(h).rolling(3).median().max()),
+                         **{f"z{z}_min": zmin[z - 1] for z in range(1, 6)}))
     return pd.DataFrame(rows, columns=cols)
 
 

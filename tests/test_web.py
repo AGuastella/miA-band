@@ -46,3 +46,16 @@ def test_series_window(client):
     s = client.get("/api/series", params={"end": "2026-06-25", "days": 28}).json()
     assert len(s["dates"]) == 28 and s["dates"][-1] == "2026-06-25"
     assert s["series"]["strain.load"]["value"][s["dates"].index("2026-06-20")] == 270
+
+
+def test_period_summary_and_steps(client):
+    p = client.get("/api/period", params={"end": "2026-06-25", "days": 7}).json()
+    cur = p["current"]
+    assert p["start"] == "2026-06-19" and cur["days"] == 7
+    assert cur["sessions"] == 1 and cur["recorded"] == 1 and cur["load"] == 270
+    assert cur["zones_min"][2] == pytest.approx(90)                  # 150 bpm = zone 3 for 90 min
+    assert cur["steps"]["per_day"] == pytest.approx(8000) and cur["steps"]["known_days"] == 7
+    assert p["sessions"][0]["sport"] == "beach_volleyball" and p["sessions"][0]["duration_min"] == 90
+    assert p["previous"]["sessions"] == 0                             # 2026-06-12 .. 06-18
+    gap = client.get("/api/day/2026-06-30").json()["metrics"]["activity.steps"]
+    assert gap["status"] == "ok" and gap["value"] == 8000            # band worn during the day

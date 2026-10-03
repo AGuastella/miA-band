@@ -54,4 +54,7 @@ python -m miaband serve            # http://127.0.0.1:8765  (e.g. ?date=2026-07-
 ```
 
 Read-only over the computed store: run `compute` after each import, then reload the page.
+Pick a day and a window (Week / Month / 3 months / Year). The page shows the day's recovery,
+sleep and load; a training summary for the window (sessions recorded and detected, time, load per week,
+time in HR zones, per-activity table, full session list, steps) compared with the window before; and the trend charts.
 Chart.js is vendored in `miaband/web/static/` (MIT licence), so the page makes no external requests.

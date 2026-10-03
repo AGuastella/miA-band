@@ -22,6 +22,10 @@ DAILY_DDL = """
 CREATE TABLE IF NOT EXISTS daily_metrics (
     date TEXT NOT NULL, metric TEXT NOT NULL, value REAL, status TEXT NOT NULL,
     reason TEXT, computed_at TEXT NOT NULL, PRIMARY KEY (date, metric));
+CREATE TABLE IF NOT EXISTS workout_metrics (
+    date TEXT NOT NULL, start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, sport TEXT, method TEXT,
+    duration_min REAL, avg_hr REAL, peak_hr REAL, load REAL, hr_max REAL,
+    z1_min REAL, z2_min REAL, z3_min REAL, z4_min REAL, z5_min REAL, PRIMARY KEY (start_ts, sport));
 CREATE TABLE IF NOT EXISTS ingest_log (
     batch_id TEXT NOT NULL, source TEXT NOT NULL, file_sha256 TEXT, ingested_at TEXT NOT NULL,
     tbl TEXT NOT NULL, rows INTEGER NOT NULL, min_ts INTEGER, max_ts INTEGER, notes TEXT);
@@ -115,6 +119,28 @@ def already_ingested(con: sqlite3.Connection, file_hash: str) -> bool:
 def read_table(con: sqlite3.Connection, name: str, where: str = "", params: tuple = ()) -> pd.DataFrame:
     df = pd.read_sql_query(f"SELECT * FROM {name} {where}", con, params=params)
     return df
+
+
+WORKOUT_COLS = ["date", "start_ts", "end_ts", "sport", "method", "duration_min", "avg_hr", "peak_hr",
+                "load", "hr_max", "z1_min", "z2_min", "z3_min", "z4_min", "z5_min"]
+
+
+def write_workouts(con: sqlite3.Connection, workouts: pd.DataFrame) -> int:
+    """Replace the derived per-workout table (recorded + detected sessions)."""
+    w = workouts.copy()
+    if w.empty:
+        w = pd.DataFrame(columns=WORKOUT_COLS)
+    w["date"] = pd.to_datetime(w["date"]).dt.strftime("%Y-%m-%d")
+    w["duration_min"] = (w["end_ts"] - w["start_ts"]) / 60
+    for c in WORKOUT_COLS:
+        if c not in w:
+            w[c] = np.nan
+    w = w.drop_duplicates(["start_ts", "sport"])
+    with con:
+        con.execute("DELETE FROM workout_metrics")
+        con.executemany(f"INSERT INTO workout_metrics VALUES ({','.join('?' * len(WORKOUT_COLS))})",
+                        _rows(w, WORKOUT_COLS))
+    return len(w)
 
 
 def write_daily(con: sqlite3.Connection, daily: pd.DataFrame) -> int:

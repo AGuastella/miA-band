@@ -14,9 +14,10 @@
     <input id="date" type="date" aria-label="Day">
     <button id="next" type="button" aria-label="Next day">›</button>
     <div class="seg" role="radiogroup" aria-label="Chart window">
-      <button type="button" data-days="28" aria-pressed="true">28 d</button>
-      <button type="button" data-days="90" aria-pressed="false">90 d</button>
-      <button type="button" data-days="365" aria-pressed="false">1 y</button>
+      <button type="button" data-days="7" aria-pressed="false">Week</button>
+      <button type="button" data-days="30" aria-pressed="true">Month</button>
+      <button type="button" data-days="90" aria-pressed="false">3 months</button>
+      <button type="button" data-days="365" aria-pressed="false">Year</button>
     </div>
   </div>
 </header>
@@ -54,12 +55,33 @@
     </article>
   </section>
 
+  <section class="period" aria-labelledby="period-title">
+    <h2 id="period-title">Training in this period <span class="muted" id="period-range"></span></h2>
+    <div class="tiles" id="period-tiles"></div>
+    <div class="period-grid">
+      <div>
+        <h3>Time in HR zones <span class="muted">(% of HRmax; recorded + detected sessions)</span></h3>
+        <div class="zonebar" id="zonebar" role="img"></div>
+        <ul class="zonelegend" id="zonelegend"></ul>
+      </div>
+      <div>
+        <h3>By activity</h3>
+        <div class="scroll"><table id="sport-table"></table></div>
+      </div>
+    </div>
+    <details class="sessions">
+      <summary id="sessions-summary">Sessions</summary>
+      <div class="scroll"><table id="sessions-table"></table></div>
+    </details>
+  </section>
+
   <section class="charts" aria-label="Trends">
     <figure class="chart"><figcaption>Recovery score <span class="muted">(33 / 67 band edges)</span></figcaption><div class="plot"><canvas id="c-recovery"></canvas></div><p class="gaps" id="g-recovery"></p></figure>
     <figure class="chart"><figcaption>Resting HR, bpm <span class="muted">(grey: 28-day baseline ± spread)</span></figcaption><div class="plot"><canvas id="c-rhr"></canvas></div><p class="gaps" id="g-rhr"></p></figure>
     <figure class="chart"><figcaption>Sleep, hours <span class="muted">(line: 28-day baseline)</span></figcaption><div class="plot"><canvas id="c-sleep"></canvas></div><p class="gaps" id="g-sleep"></p></figure>
     <figure class="chart"><figcaption>Daily training load, Edwards TRIMP</figcaption><div class="plot"><canvas id="c-load"></canvas></div><p class="gaps" id="g-load"></p></figure>
     <figure class="chart"><figcaption>ACWR, EWMA 7 d / 28 d <span class="muted">(shaded 0.8–1.3: reference only, not an injury predictor)</span></figcaption><div class="plot"><canvas id="c-acwr"></canvas></div><p class="gaps" id="g-acwr"></p></figure>
+    <figure class="chart"><figcaption>Steps per day <span class="muted">(line: 7-day average)</span></figcaption><div class="plot"><canvas id="c-steps"></canvas></div><p class="gaps" id="g-steps"></p></figure>
     <figure class="chart"><figcaption>Sleep Regularity Index, 7 d</figcaption><div class="plot"><canvas id="c-sri"></canvas></div><p class="gaps" id="g-sri"></p></figure>
   </section>
 

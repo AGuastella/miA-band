@@ -50,6 +50,8 @@ class Scenario:
     workouts: dict = field(default_factory=dict)            # date -> (local time, minutes, bpm)
     non_wear: list = field(default_factory=list)            # [(local datetime, local datetime)]
     tz_by_date: dict = field(default_factory=dict)          # date -> IANA zone (travel)
+    daily_steps: int = 8000                                 # walked from 09:00 at 100 steps/min
+    steps_by_date: dict = field(default_factory=dict)       # date -> steps that day
 
 
 def _utc(local: dt.datetime, tz: ZoneInfo) -> int:
@@ -154,6 +156,23 @@ def generate(sc: Scenario) -> tuple[CanonicalBatch, pd.DataFrame]:
         keep &= ~((ts >= _utc(a, home)) & (ts < _utc(b, home)))
     hr = hr + rng.normal(0, sc.noise_sd, ts.shape) if sc.noise_sd else hr
 
+    # ---- steps: one row per active minute, as the band writes them
+    st_rows = []
+    for i in range(sc.nights):
+        day = sc.first_wake + dt.timedelta(days=i)
+        n = sc.steps_by_date.get(day, sc.daily_steps)
+        t = _utc(dt.datetime.combine(day, dt.time(9)), ZoneInfo(sc.tz_by_date.get(day, sc.tz)))
+        while n > 0:
+            st_rows.append((t, min(100, n)))
+            n -= 100
+            t += 60
+    st = pd.DataFrame(st_rows, columns=["ts", "steps"])
+    if not st.empty:
+        off = np.zeros(len(st), dtype=bool)
+        for a, b in sc.non_wear:
+            off |= (st["ts"] >= _utc(a, home)) & (st["ts"] < _utc(b, home))
+        st = st[~off]
+
     def frame(rows, table):
         df = pd.DataFrame(rows, columns=[c for c in TABLES[table]["columns"] if c not in ("source", "device_id")])
         df.insert(0, "device_id", sc.device_id)
@@ -166,6 +185,7 @@ def generate(sc: Scenario) -> tuple[CanonicalBatch, pd.DataFrame]:
         "sleep_sessions": frame(pd.DataFrame(sessions), "sleep_sessions"),
         "sleep_segments": frame(pd.DataFrame(segments), "sleep_segments"),
         "workouts": frame(pd.DataFrame(workouts), "workouts"),
+        "step_samples": frame(st, "step_samples"),
     })
     batch.validate()
     return batch, pd.DataFrame(truth)
