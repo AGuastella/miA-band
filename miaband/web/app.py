@@ -7,6 +7,7 @@ status and reason, so the page can show *why* something is missing instead of a 
   GET /api/day/{date}            all metrics for one day: {metric: {value, status, reason}}
   GET /api/series?end=&days=     wide arrays for charts over a window ending at `end`
   GET /api/period?end=&days=     training + steps summary of that window vs the previous one
+  GET /api/readiness-rules       the configured readiness rules, to name the one that fired
 """
 from __future__ import annotations
 
@@ -28,8 +29,12 @@ SERIES = [
 ZONES = ["z1_min", "z2_min", "z3_min", "z4_min", "z5_min"]
 
 
-def create_app(store_path: Path | str) -> FastAPI:
+def create_app(store_path: Path | str, rules: tuple | list | None = None) -> FastAPI:
+    """`rules`: the readiness rules in force (config), so the page can say which one fired."""
     store_path = Path(store_path)
+    if rules is None:
+        from ..config import DEFAULT_RULES
+        rules = DEFAULT_RULES
     app = FastAPI(title="miA-band", docs_url=None, redoc_url=None)
 
     def con() -> sqlite3.Connection:
@@ -38,6 +43,10 @@ def create_app(store_path: Path | str) -> FastAPI:
         c = sqlite3.connect(f"file:{store_path}?mode=ro", uri=True)
         c.row_factory = sqlite3.Row
         return c
+
+    @app.get("/api/readiness-rules")
+    def readiness_rules():
+        return [{"when": list(r.get("when", [])), "say": r.get("say", "")} for r in rules]
 
     @app.get("/api/range")
     def range_():

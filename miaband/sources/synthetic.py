@@ -39,6 +39,11 @@ class Scenario:
     bedtime: dt.time = dt.time(23, 30)
     sleep_hours: float = 7.5
     bedtime_jitter_min: float = 0.0
+    # night-to-night realism (0 = exact, deterministic nights for tests)
+    sleep_hours_sd: float = 0.0                             # SD of sleep duration, hours
+    awake_max_min: float = 0.0                              # random mid-night awake bout, 0..max minutes
+    stage_jitter_min: int = 0                               # each stage block +- up to this many minutes
+    nadir_sd: float = 0.0                                   # night-to-night SD of the sleeping-HR nadir, bpm
     with_stages: bool = True
     # planted events, keyed by wake date
     short_nights: dict = field(default_factory=dict)        # date -> hours
@@ -47,7 +52,7 @@ class Scenario:
     rhr_delta: dict = field(default_factory=dict)           # date -> bpm added to the nadir
     missing_nights: set = field(default_factory=set)        # no sleep record, band off at night
     naps: dict = field(default_factory=dict)                # date -> (local time, minutes)
-    workouts: dict = field(default_factory=dict)            # date -> (local time, minutes, bpm)
+    workouts: dict = field(default_factory=dict)            # date -> (local time, minutes, bpm[, sport])
     non_wear: list = field(default_factory=list)            # [(local datetime, local datetime)]
     tz_by_date: dict = field(default_factory=dict)          # date -> IANA zone (travel)
     daily_steps: int = 8000                                 # walked from 09:00 at 100 steps/min
@@ -62,11 +67,13 @@ def _offset_min(ts: int, tz: ZoneInfo) -> int:
     return int(dt.datetime.fromtimestamp(ts, tz).utcoffset().total_seconds() // 60)
 
 
-def _stage_plan(start: int, end: int, awake_min: float) -> list[tuple[int, int, str]]:
+def _stage_plan(start: int, end: int, awake_min: float, rng=None, jitter: int = 0) -> list[tuple[int, int, str]]:
     cycle = [("light", 45), ("deep", 25), ("rem", 20)]
     segs, t, k = [], start, 0
     while t < end:
         stage, m = cycle[k % 3]
+        if jitter and rng is not None:
+            m = max(5, m + int(rng.integers(-jitter, jitter + 1)))
         segs.append((t, min(t + m * 60, end), stage))
         t += m * 60
         k += 1
@@ -96,12 +103,18 @@ def generate(sc: Scenario) -> tuple[CanonicalBatch, pd.DataFrame]:
         wake = sc.first_wake + dt.timedelta(days=i)
         tz = ZoneInfo(sc.tz_by_date.get(wake, sc.tz))
         hours = sc.short_nights.get(wake, sc.sleep_hours)
+        if sc.sleep_hours_sd and wake not in sc.short_nights:
+            hours = round(max(4.0, hours + rng.normal(0, sc.sleep_hours_sd)) * 60) / 60
         shift = sc.bedtime_shift_min.get(wake, 0) + rng.normal(0, sc.bedtime_jitter_min)
         bed_local = dt.datetime.combine(wake - dt.timedelta(days=1), sc.bedtime) + dt.timedelta(minutes=shift)
         start = _utc(bed_local, tz)
         end = start + int(hours * 3600)
         awake = sc.awake_bouts.get(wake, 0)
+        if sc.awake_max_min and wake not in sc.awake_bouts:
+            awake = int(rng.integers(0, int(sc.awake_max_min) + 1))
         nadir = sc.nadir_hr + sc.rhr_delta.get(wake, 0)
+        if sc.nadir_sd:
+            nadir += float(rng.normal(0, sc.nadir_sd))
         missing = wake in sc.missing_nights
         truth.append(dict(date=np.datetime64(wake), has_night=not missing,
                           tst_min=np.nan if missing else hours * 60 - awake,
@@ -115,7 +128,7 @@ def generate(sc: Scenario) -> tuple[CanonicalBatch, pd.DataFrame]:
         sessions.append(dict(start_ts=start, end_ts=end, is_nap=np.nan, tz_offset_min=off,
                              dev_duration_min=hours * 60 - awake, dev_awake_min=float(awake)))
         if sc.with_stages:
-            for s, e, st in _stage_plan(start, end, awake):
+            for s, e, st in _stage_plan(start, end, awake, rng, sc.stage_jitter_min):
                 segments.append(dict(session_start_ts=start, start_ts=s, end_ts=e, stage=st))
         sleep_spans.append((start, end, nadir))
 
@@ -128,10 +141,11 @@ def generate(sc: Scenario) -> tuple[CanonicalBatch, pd.DataFrame]:
             if sc.with_stages:
                 segments.append(dict(session_start_ts=ns, start_ts=ns, end_ts=ns + minutes * 60, stage="light"))
         if wake in sc.workouts:
-            t, minutes, bpm = sc.workouts[wake]
+            t, minutes, bpm, *rest = sc.workouts[wake]
+            sport = rest[0] if rest else "free_training"
             ws = _utc(dt.datetime.combine(wake, t), tz)
             zone = int(np.searchsorted((0.5, 0.6, 0.7, 0.8, 0.9), bpm / sc.hr_max, side="right"))
-            workouts.append(dict(start_ts=ws, end_ts=ws + minutes * 60, sport="training",
+            workouts.append(dict(start_ts=ws, end_ts=ws + minutes * 60, sport=sport,
                                  tz_offset_min=_offset_min(ws, tz), avg_hr=float(bpm), max_hr=float(bpm),
                                  min_hr=float(bpm), dev_train_load=np.nan,
                                  **{f"zone{z}_s": float(minutes * 60 if z == zone else 0) for z in range(1, 6)}))

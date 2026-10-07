@@ -103,7 +103,7 @@ def _summary(date, r) -> None:
         print(f"Recovery: {st or 'n/a'} — {r.get('recovery.score:reason') or 'no data'}")
     rule = r.get("readiness.rule")
     if rule is not None and not pd.isna(rule):
-        print(f"Readiness: {r.get('readiness.rule:reason')}   [rule {int(rule)}]")
+        print(f"Readiness: {r.get('readiness.rule:reason')}   [rule {int(rule) + 1}]")
     acwr = (f"{r['acwr.ewma']:.2f}" if r.get("acwr.ewma:status") == "ok"
             else f"n/a ({r.get('acwr.ewma:reason')})")
     print(f"Load today: {_num(r.get('strain.load'))} (strain {_num(r.get('strain.strain'), '{:.1f}')}), ACWR {acwr}")
@@ -308,7 +308,7 @@ def cmd_serve(cfg: Config, args) -> int:
         print('the dashboard needs the web extra: pip install -e ".[web]"', file=sys.stderr)
         return 2
     print(f"miA-band dashboard on http://{args.host}:{args.port}  (store: {cfg.store}; Ctrl+C to stop)")
-    uvicorn.run(create_app(cfg.store), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(create_app(cfg.store, cfg.readiness.rules), host=args.host, port=args.port, log_level="warning")
     return 0
 
 
@@ -316,6 +316,7 @@ def cmd_demo(cfg: Config, args) -> int:
     from .sources.synthetic import Scenario, generate
     today = dt.date.today()
     sc = Scenario(first_wake=today - dt.timedelta(days=41), nights=42, bedtime_jitter_min=25, noise_sd=1.5,
+                  sleep_hours_sd=0.5, awake_max_min=30, stage_jitter_min=8, nadir_sd=1.5,
                   short_nights={today - dt.timedelta(days=3): 5.0},
                   rhr_delta={today - dt.timedelta(days=1): 7},
                   missing_nights={today - dt.timedelta(days=5)},

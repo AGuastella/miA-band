@@ -18,6 +18,26 @@ async function api(path) {
   return r.json();
 }
 
+// ---------------------------------------------------------------- labels
+const METHOD_LABELS = { hr_ours: "zones from 1-min HR", device_zones: "band's zones", detected: "detected, not started on band",
+                        low_resolution: "no HR detail" };
+const methodLabel = (m) => METHOD_LABELS[m] || m;
+const FIELD_LABELS = { "recovery.status": "recovery", "recovery.score": "recovery", "recovery.band": "recovery band",
+  "rhr.z": "resting-HR z", "rhr.flag": "resting HR flagged", "sleep.z": "sleep z", "sleep.flag": "short night",
+  "sleep.tst_min": "sleep minutes", "acwr.value": "ACWR", "acwr.status": "ACWR", "load.yesterday": "yesterday's load" };
+
+function describeRule(i) {
+  const rules = state.rules || [];
+  const r = rules[i];
+  if (!r) return `Rule ${i + 1}`;
+  const terms = r.when.map((t) => {
+    if (t.op === "==" && t.value === true) return FIELD_LABELS[t.field] || t.field;
+    if (t.field === "recovery.status" && t.op === "!=" && t.value === "ok") return "no recovery score";
+    return `${FIELD_LABELS[t.field] || t.field} ${t.op} ${t.value}`;
+  });
+  return `Rule ${i + 1} of ${rules.length}: ` + (terms.length ? `when ${terms.join(" and ")}` : "otherwise (no earlier rule matched)");
+}
+
 // ---------------------------------------------------------------- day cards
 function metric(m, name) { return m[name] || { value: null, status: "missing", reason: null }; }
 function okVal(m, name) { const x = metric(m, name); return x.status === "ok" ? x.value : null; }
@@ -58,6 +78,7 @@ function renderDay(d) {
   // Readiness
   const rd = metric(m, "readiness.rule");
   $("readiness").textContent = rd.reason || "–";
+  $("readiness-rule").textContent = rd.value == null ? "" : describeRule(rd.value);
   // Sleep
   const tst = metric(m, "sleep.tst_min");
   $("sleep-tst").textContent = tst.status === "ok" ? fmtHM(tst.value) : "–";
@@ -88,7 +109,7 @@ function renderDay(d) {
   const n = metric(m, "strain.n_workouts");
   kv($("load-kv"), [
     ["Strain", load.status === "ok" ? `${fmt(okVal(m, "strain.strain"), 1)} / 21` : "–"],
-    ["Sessions", `${fmt(n.value)}${n.reason ? " (" + n.reason + ")" : ""}`],
+    ["Sessions", `${fmt(n.value)}${n.reason ? " (" + n.reason.split(",").map(methodLabel).join(", ") + ")" : ""}`],
     ["ACWR", acwr.status === "ok" ? fmt(acwr.value, 2) : (acwr.reason || acwr.status)],
     ["Steps", metric(m, "activity.steps").status === "ok" ? fmtInt(metric(m, "activity.steps").value) : "unknown"],
     ...(load.status !== "ok" || load.reason ? [["Note", load.reason || ""]] : []),
@@ -293,7 +314,7 @@ function renderPeriod(p) {
     p.sessions.map((s) => `<tr><td>${s.date}</td><td class="text">${esc(SPORT(s.sport))}</td><td>${fmtHM(s.duration_min)}</td>` +
       `<td>${fmt(s.avg_hr)}</td><td>${fmt(s.peak_hr)}</td><td>${s.load == null ? "unknown" : fmtInt(s.load)}</td>` +
       ["z1_min", "z2_min", "z3_min", "z4_min", "z5_min"].map((k) => `<td>${s[k] == null ? "–" : fmt(s[k])}</td>`).join("") +
-      `<td class="text">${esc({ hr_ours: "our zones", device_zones: "band zones", low_resolution: "no HR detail", detected: "detected" }[s.method] || s.method)}</td></tr>`).join("");
+      `<td class="text">${esc(methodLabel(s.method))}</td></tr>`).join("");
 }
 
 // ---------------------------------------------------------------- wiring
@@ -319,6 +340,7 @@ function shift(delta) {
 async function init() {
   try {
     state.range = await api("/api/range");
+    state.rules = await api("/api/readiness-rules").catch(() => []);
   } catch (e) {
     $("notice").textContent = String(e.message || e);
     return;

@@ -77,7 +77,7 @@ def compute_daily(tables: dict[str, pd.DataFrame], cfg: Config) -> tuple[pd.Data
         firsts.append(hd.iloc[0].normalize()); lasts.append(hd.iloc[1].normalize())
     if not firsts:
         return pd.DataFrame(columns=["date"]), pd.DataFrame()
-    days = np.arange(np.datetime64(min(firsts), "D"), np.datetime64(max(lasts), "D") + 1, dtype="datetime64[D]")
+    days = np.arange(np.datetime64(min(firsts), "D"), np.datetime64(max(lasts), "D") + np.timedelta64(1, "D"), dtype="datetime64[D]")
     rest = (nightly.set_index("date")["rhr_base_center"] if "rhr_base_center" in nightly
             else pd.Series(dtype=float)).reindex(pd.DatetimeIndex(days)).ffill().fillna(cfg.person.resting_hr)
     strain, workouts = daily_strain(days, w, ctx["hr"], ctx["worn"], ctx["timeline"], rest, cfg)
@@ -100,7 +100,8 @@ def detector_recall(tables: dict[str, pd.DataFrame], cfg: Config, since: str | N
     if w.empty or hr.empty:
         return {"n": 0}
     days = np.arange(np.datetime64(pd.to_datetime(w["start_ts"].min(), unit="s"), "D"),
-                     np.datetime64(pd.to_datetime(w["start_ts"].max(), unit="s"), "D") + 2, dtype="datetime64[D]")
+                     np.datetime64(pd.to_datetime(w["start_ts"].max(), unit="s"), "D") + np.timedelta64(2, "D"),
+                     dtype="datetime64[D]")
     hrmax = hrmax_by_date(days, w.assign(max_hr=sustained_peaks(w, hr, cfg)), cfg)
     hrmax["date"] = pd.to_datetime(hrmax["date"])
     loads = workout_loads(w, hr, hrmax, ctx["timeline"], cfg)
